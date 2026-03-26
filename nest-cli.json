@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "monorepo": true,
+  "root": "apps/api-gateway",
+  "sourceRoot": "apps/api-gateway/src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": false,
+    "tsConfigPath": "tsconfig.build.json"
+  },
+  "projects": {
+    "api-gateway": {
+      "type": "application",
+      "root": "apps/api-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/api-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "tsconfig.build.json"
+      }
+    },
+    "login-service": {
+      "type": "application",
+      "root": "apps/login-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/login-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "tsconfig.build.json"
+      }
+    },
+    "register-service": {
+      "type": "application",
+      "root": "apps/register-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/register-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "tsconfig.build.json"
+      }
+    },
+    "main-service": {
+      "type": "application",
+      "root": "apps/main-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/main-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "tsconfig.build.json"
+      }
+    },
+    "card-service": {
+      "type": "application",
+      "root": "apps/card-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/card-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "tsconfig.build.json"
+      }
+    }
+  }
+}

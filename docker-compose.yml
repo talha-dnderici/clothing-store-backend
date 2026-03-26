@@ -1,0 +1,108 @@
+services:
+  register-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: register-service
+    container_name: register-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGODB_URI: ${MONGODB_URI}
+      REGISTER_SERVICE_HOST: 0.0.0.0
+      REGISTER_SERVICE_PORT: 4002
+
+  login-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: login-service
+    container_name: login-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGODB_URI: ${MONGODB_URI}
+      REGISTER_SERVICE_HOST: register-service
+      REGISTER_SERVICE_PORT: 4002
+      LOGIN_SERVICE_HOST: 0.0.0.0
+      LOGIN_SERVICE_PORT: 4001
+    depends_on:
+      - register-service
+
+  main-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: main-service
+    container_name: main-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGODB_URI: ${MONGODB_URI}
+      MAIN_SERVICE_HOST: 0.0.0.0
+      MAIN_SERVICE_PORT: 4003
+
+  card-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: card-service
+    container_name: card-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGODB_URI: ${MONGODB_URI}
+      CARD_SERVICE_HOST: 0.0.0.0
+      CARD_SERVICE_PORT: 4004
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: api-gateway
+    container_name: api-gateway
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: 3000
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: 3000
+      LOGIN_SERVICE_HOST: login-service
+      LOGIN_SERVICE_PORT: 4001
+      REGISTER_SERVICE_HOST: register-service
+      REGISTER_SERVICE_PORT: 4002
+      MAIN_SERVICE_HOST: main-service
+      MAIN_SERVICE_PORT: 4003
+      CARD_SERVICE_HOST: card-service
+      CARD_SERVICE_PORT: 4004
+    ports:
+      - "3000:3000"
+    depends_on:
+      - login-service
+      - register-service
+      - main-service
+      - card-service
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: clothing-store-frontend
+    restart: unless-stopped
+    environment:
+      API_BASE_URL: http://api-gateway:3000
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      - api-gateway

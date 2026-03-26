@@ -1,6 +1,8 @@
 node_modules
-dist
-.env
-*.log
 frontend/node_modules
 frontend/.next
+dist
+.git
+.DS_Store
+npm-debug.log
+coverage
