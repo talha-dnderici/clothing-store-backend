@@ -16,7 +16,8 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 app.use("/api/auth", require("./routes/authRoutes"));
-
+app.use("/api/products", require("./routes/productRoutes"));
+app.use("/api/cart", require("./routes/cartRoutes"));
 app.get("/", (req, res) => {
   res.send("API is running");
 });
