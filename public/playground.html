@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Backend Playground</title>
+</head>
+<body>
+  <h1>Backend Playground</h1>
+
+  <h2>Register</h2>
+  <input id="regName" placeholder="Name" /><br /><br />
+  <input id="regEmail" placeholder="Email" /><br /><br />
+  <input id="regPassword" type="password" placeholder="Password" /><br /><br />
+  <input id="regTaxId" placeholder="Tax ID" /><br /><br />
+  <input id="regAddress" placeholder="Address" /><br /><br />
+  <button onclick="registerUser()">Register</button>
+
+  <h2>Login</h2>
+  <input id="loginEmail" placeholder="Email" /><br /><br />
+  <input id="loginPassword" type="password" placeholder="Password" /><br /><br />
+  <button onclick="loginUser()">Login</button>
+
+  <h2>Response</h2>
+  <pre id="output"></pre>
+
+  <script>
+    async function registerUser() {
+      const data = {
+        name: document.getElementById("regName").value,
+        email: document.getElementById("regEmail").value,
+        password: document.getElementById("regPassword").value,
+        taxId: document.getElementById("regTaxId").value,
+        address: document.getElementById("regAddress").value
+      };
+
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+      });
+
+      const result = await res.json();
+      document.getElementById("output").textContent = JSON.stringify(result, null, 2);
+    }
+
+    async function loginUser() {
+      const data = {
+        email: document.getElementById("loginEmail").value,
+        password: document.getElementById("loginPassword").value
+      };
+
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+      });
+
+      const result = await res.json();
+      document.getElementById("output").textContent = JSON.stringify(result, null, 2);
+    }
+  </script>
+</body>
+</html>
