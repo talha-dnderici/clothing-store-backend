@@ -220,3 +220,85 @@ This means you can keep the backend untouched and still test all endpoints from 
 - Old Express files were left in the repository, but the new startup path is the NestJS microservice structure under `apps/`.
 - MongoDB runs remotely through the connection string stored in `.env`; Docker Compose no longer starts a local database container.
 - If `npm install` has not been run yet, local execution and Docker builds will fail until dependencies are installed.
+
+## Deploy Backend To Hugging Face Spaces
+
+This repository includes a single-container backend image for Hugging Face Spaces at `Dockerfile.hf`.
+
+It starts all Nest microservices inside one container and exposes only the API gateway on port `7860`, which matches the default public port used by Docker Spaces.
+
+### 1. Push this repository to GitHub
+
+```bash
+git add -A
+git commit -m "Add Hugging Face backend deployment"
+git push origin main
+```
+
+### 2. Create a new Docker Space
+
+On Hugging Face:
+
+1. Create a new Space.
+2. Choose `Docker` as the SDK.
+3. Connect the GitHub repository or upload the repository contents.
+
+### 3. Add a Space README front matter
+
+In the Hugging Face Space repository, make sure the `README.md` starts with:
+
+```md
+---
+title: Clothing Store Backend
+sdk: docker
+app_port: 7860
+---
+```
+
+The rest of the README content can stay below that block.
+
+### 4. Tell the Space to use the backend Dockerfile
+
+Hugging Face Docker Spaces look for `Dockerfile` by default. The easiest setup is:
+
+```bash
+cp Dockerfile.hf Dockerfile
+```
+
+If you want to keep both Dockerfiles, do that copy in the Hugging Face Space repository before the build starts.
+
+### 5. Add Space secrets
+
+Add these values in the Space settings:
+
+- `MONGODB_URI`
+- `JWT_SECRET`
+
+Optional overrides if you want them:
+
+- `PORT=7860`
+- `GATEWAY_PORT=7860`
+
+### 6. Use the public Space URL in the frontend
+
+After the Space builds, it will expose a public URL like:
+
+- `https://your-space-name.hf.space`
+
+Then set the frontend environment value on Render to:
+
+```bash
+API_BASE_URL=https://your-space-name.hf.space
+```
+
+If the frontend is also using a public variable, set:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=https://your-space-name.hf.space
+```
+
+### Notes
+
+- `Dockerfile.hf` is only for the backend on Hugging Face Spaces.
+- The separate `frontend/` app should stay on Render as a normal web service.
+- Do not commit real production secrets into `.env`, `.env.example`, or the Hugging Face repository.
