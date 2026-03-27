@@ -302,3 +302,24 @@ NEXT_PUBLIC_API_BASE_URL=https://your-space-name.hf.space
 - `Dockerfile.hf` is only for the backend on Hugging Face Spaces.
 - The separate `frontend/` app should stay on Render as a normal web service.
 - Do not commit real production secrets into `.env`, `.env.example`, or the Hugging Face repository.
+
+## Deploy Frontend To Render
+
+The frontend is ready to run on Render from the `frontend/` directory.
+
+This repository also includes a `render.yaml` blueprint that points the frontend to the Hugging Face backend at:
+
+- `https://talha-dnderici-clothes.hf.space`
+
+### Render settings
+
+- Service type: `Web Service`
+- Runtime: `Node`
+- Root directory: `frontend`
+- Build command: `npm install && npm run build`
+- Start command: `npm run start`
+
+### Render environment variables
+
+- `API_BASE_URL=https://talha-dnderici-clothes.hf.space`
+- `NEXT_PUBLIC_API_BASE_URL=https://talha-dnderici-clothes.hf.space`

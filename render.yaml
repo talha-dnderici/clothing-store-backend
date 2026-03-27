@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: clothing-store-frontend
+    runtime: node
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    plan: free
+    envVars:
+      - key: API_BASE_URL
+        value: https://talha-dnderici-clothes.hf.space
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://talha-dnderici-clothes.hf.space
