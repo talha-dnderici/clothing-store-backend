@@ -36,7 +36,35 @@ Dockerfile
 cp .env.example .env
 ```
 
-2. Update values if needed. The example file already points to the shared MongoDB Atlas cluster.
+2. Update values in `.env`, especially `MONGODB_URI`, with your own MongoDB Atlas connection string.
+
+### MongoDB Atlas Setup
+
+If you need to create the database yourself, MongoDB Atlas is a good fit for this project because every Nest service already reads the same `MONGODB_URI` value.
+
+1. Create a free cluster in MongoDB Atlas.
+2. Create a database user with read/write access.
+3. In `Network Access`, allow your current IP address. For development, you can temporarily allow `0.0.0.0/0` and tighten it later.
+4. Copy the SRV connection string from Atlas.
+5. Create a local environment file:
+
+```bash
+cp .env.example .env
+```
+
+6. Replace `MONGODB_URI` inside `.env` with your own Atlas connection string.
+
+Example:
+
+```env
+MONGODB_URI=mongodb+srv://myUser:myPassword@my-cluster.mongodb.net/clothing_store?retryWrites=true&w=majority&appName=clothing-store
+```
+
+Important:
+
+- Do not commit real Atlas usernames or passwords.
+- If your password contains special characters such as `@`, `:` or `/`, URL-encode it before putting it into the connection string.
+- All services in this repository connect to the same database, so one valid `MONGODB_URI` is enough.
 
 ## Run With Docker
 

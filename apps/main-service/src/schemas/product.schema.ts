@@ -8,6 +8,12 @@ export class Product {
   @Prop({ required: true, trim: true })
   name!: string;
 
+  @Prop({ default: '', trim: true })
+  model!: string;
+
+  @Prop({ default: '', trim: true, unique: true, sparse: true })
+  serialNumber!: string;
+
   @Prop({ required: true, trim: true })
   description!: string;
 
@@ -19,6 +25,18 @@ export class Product {
 
   @Prop({ required: true, min: 0 })
   stock!: number;
+
+  @Prop({ default: false })
+  warrantyStatus!: boolean;
+
+  @Prop({ default: '', trim: true })
+  distributor!: string;
+
+  @Prop({ default: 0, min: 0, max: 100 })
+  discountRate!: number;
+
+  @Prop({ default: 0, min: 0 })
+  popularity!: number;
 
   @Prop({ default: '' })
   imageUrl!: string;
