@@ -4,7 +4,8 @@ export interface ProductInterface {
   model?: string;
   serialNumber?: string;
   description: string;
-  category: string;
+  categoryId: string;
+  categoryIds: string[];
   price: number;
   stock: number;
   warrantyStatus?: boolean;

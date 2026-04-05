@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { createMongoConfig } from '@app/common/database/mongo.config';
 import { MainController } from './main.controller';
 import { MainService } from './main.service';
+import { Category, CategorySchema } from './schemas/category.schema';
 import { Product, ProductSchema } from './schemas/product.schema';
 
 @Module({
@@ -16,7 +17,10 @@ import { Product, ProductSchema } from './schemas/product.schema';
       inject: [ConfigService],
       useFactory: createMongoConfig,
     }),
-    MongooseModule.forFeature([{ name: Product.name, schema: ProductSchema }]),
+    MongooseModule.forFeature([
+      { name: Product.name, schema: ProductSchema },
+      { name: Category.name, schema: CategorySchema },
+    ]),
   ],
   controllers: [MainController],
   providers: [MainService],

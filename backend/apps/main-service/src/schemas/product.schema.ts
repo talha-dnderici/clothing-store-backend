@@ -17,8 +17,8 @@ export class Product {
   @Prop({ required: true, trim: true })
   description!: string;
 
-  @Prop({ required: true, trim: true })
-  category!: string;
+  @Prop({ required: true, type: [String], default: [] })
+  categoryIds!: string[];
 
   @Prop({ required: true, min: 0 })
   price!: number;

@@ -16,10 +16,12 @@ import { firstValueFrom } from 'rxjs';
 import { SERVICE_TOKENS } from '@app/common/constants/service-tokens';
 import { LoginDto } from '../../login-service/src/dto/login.dto';
 import { UpdateSessionDto } from '../../login-service/src/dto/update-session.dto';
+import { CreateCategoryDto } from '../../main-service/src/dto/create-category.dto';
 import { CreateUserDto } from '../../register-service/src/dto/create-user.dto';
 import { RegisterUserDto } from '../../register-service/src/dto/register-user.dto';
 import { UpdateUserDto } from '../../register-service/src/dto/update-user.dto';
 import { CreateProductDto } from '../../main-service/src/dto/create-product.dto';
+import { UpdateCategoryDto } from '../../main-service/src/dto/update-category.dto';
 import { UpdateProductDto } from '../../main-service/src/dto/update-product.dto';
 import { CreateCardDto } from '../../card-service/src/dto/create-card.dto';
 import { UpdateCardDto } from '../../card-service/src/dto/update-card.dto';
@@ -181,9 +183,20 @@ export class AppController {
     return this.sendMessage(this.mainClient, 'main.createProduct', dto);
   }
 
+  @Post('categories')
+  @HttpCode(HttpStatus.CREATED)
+  createCategory(@Body() dto: CreateCategoryDto) {
+    return this.sendMessage(this.mainClient, 'main.createCategory', dto);
+  }
+
   @Get('products')
   findAllProducts() {
     return this.sendMessage(this.mainClient, 'main.findAllProducts', {});
+  }
+
+  @Get('categories')
+  findAllCategories() {
+    return this.sendMessage(this.mainClient, 'main.findAllCategories', {});
   }
 
   @Get('products/:id')
@@ -191,14 +204,29 @@ export class AppController {
     return this.sendMessage(this.mainClient, 'main.findOneProduct', id);
   }
 
+  @Get('categories/:id')
+  findOneCategory(@Param('id') id: string) {
+    return this.sendMessage(this.mainClient, 'main.findOneCategory', id);
+  }
+
   @Patch('products/:id')
   updateProduct(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.sendMessage(this.mainClient, 'main.updateProduct', { id, dto });
   }
 
+  @Patch('categories/:id')
+  updateCategory(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
+    return this.sendMessage(this.mainClient, 'main.updateCategory', { id, dto });
+  }
+
   @Delete('products/:id')
   deleteProduct(@Param('id') id: string) {
     return this.sendMessage(this.mainClient, 'main.deleteProduct', id);
+  }
+
+  @Delete('categories/:id')
+  deleteCategory(@Param('id') id: string) {
+    return this.sendMessage(this.mainClient, 'main.deleteCategory', id);
   }
 
   @Post('cards')

@@ -1,4 +1,6 @@
 import {
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsNumber,
   IsOptional,
@@ -22,8 +24,15 @@ export class CreateProductDto {
   @IsString()
   description!: string;
 
+  @IsOptional()
   @IsString()
-  category!: string;
+  categoryId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  categoryIds?: string[];
 
   @IsNumber()
   @Min(0)
