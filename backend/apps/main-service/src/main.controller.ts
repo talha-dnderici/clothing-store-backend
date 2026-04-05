@@ -2,6 +2,7 @@ import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ListProductsDto } from './dto/list-products.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { MainService } from './main.service';
@@ -21,8 +22,8 @@ export class MainController {
   }
 
   @MessagePattern('main.findAllProducts')
-  findAllProducts() {
-    return this.mainService.findAllProducts();
+  findAllProducts(@Payload() payload: ListProductsDto) {
+    return this.mainService.findAllProducts(payload);
   }
 
   @MessagePattern('main.findAllCategories')

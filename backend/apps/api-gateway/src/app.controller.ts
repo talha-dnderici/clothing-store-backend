@@ -10,6 +10,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
@@ -21,6 +22,7 @@ import { CreateUserDto } from '../../register-service/src/dto/create-user.dto';
 import { RegisterUserDto } from '../../register-service/src/dto/register-user.dto';
 import { UpdateUserDto } from '../../register-service/src/dto/update-user.dto';
 import { CreateProductDto } from '../../main-service/src/dto/create-product.dto';
+import { ListProductsDto } from '../../main-service/src/dto/list-products.dto';
 import { UpdateCategoryDto } from '../../main-service/src/dto/update-category.dto';
 import { UpdateProductDto } from '../../main-service/src/dto/update-product.dto';
 import { CreateCardDto } from '../../card-service/src/dto/create-card.dto';
@@ -190,8 +192,8 @@ export class AppController {
   }
 
   @Get('products')
-  findAllProducts() {
-    return this.sendMessage(this.mainClient, 'main.findAllProducts', {});
+  findAllProducts(@Query() query: ListProductsDto) {
+    return this.sendMessage(this.mainClient, 'main.findAllProducts', query);
   }
 
   @Get('categories')

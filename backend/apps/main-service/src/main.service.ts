@@ -7,9 +7,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, SortOrder } from 'mongoose';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ListProductsDto } from './dto/list-products.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Category, CategoryDocument } from './schemas/category.schema';
@@ -65,6 +66,40 @@ export class MainService {
     }
 
     return category;
+  }
+
+  private async findCategoryIdByFilter(categoryFilter: string) {
+    const trimmedFilter = categoryFilter.trim();
+
+    const category = await this.categoryModel
+      .findOne({
+        $or: [
+          { _id: trimmedFilter },
+          { slug: trimmedFilter.toLowerCase() },
+          { name: new RegExp(`^${trimmedFilter}$`, 'i') },
+        ],
+      })
+      .select('_id')
+      .lean()
+      .exec();
+
+    return category?._id?.toString() ?? null;
+  }
+
+  private buildProductSort(
+    sort?: 'latest' | 'price_asc' | 'price_desc' | 'popularity',
+  ): Record<string, SortOrder> {
+    switch (sort) {
+      case 'price_asc':
+        return { price: 1, createdAt: -1 };
+      case 'price_desc':
+        return { price: -1, createdAt: -1 };
+      case 'popularity':
+        return { popularity: -1, createdAt: -1 };
+      case 'latest':
+      default:
+        return { createdAt: -1 };
+    }
   }
 
   private async normalizeCategoryIds(payload: {
@@ -140,10 +175,54 @@ export class MainService {
     }
   }
 
-  async findAllProducts() {
+  async findAllProducts(payload: ListProductsDto = {}) {
     try {
-      const products = await this.productModel.find().sort({ createdAt: -1 }).exec();
-      return products.map((product) => this.sanitizeProduct(product));
+      const page = Math.max(Number.parseInt(payload.page ?? '1', 10) || 1, 1);
+      const limit = Math.max(
+        Math.min(Number.parseInt(payload.limit ?? '12', 10) || 12, 100),
+        1,
+      );
+      const filter: Record<string, unknown> = {};
+
+      if (payload.q?.trim()) {
+        const query = payload.q.trim();
+        filter.$or = [
+          { name: { $regex: query, $options: 'i' } },
+          { description: { $regex: query, $options: 'i' } },
+        ];
+      }
+
+      if (payload.category?.trim()) {
+        const categoryId = await this.findCategoryIdByFilter(payload.category);
+
+        if (!categoryId) {
+          return {
+            items: [],
+            total: 0,
+            page,
+            limit,
+          };
+        }
+
+        filter.categoryIds = categoryId;
+      }
+
+      const [products, total] = await Promise.all([
+        this.productModel
+          .find(filter)
+          .sort(this.buildProductSort(payload.sort))
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .exec(),
+        this.productModel.countDocuments(filter).exec(),
+      ]);
+
+      return {
+        items: products.map((product) => this.sanitizeProduct(product)),
+        total,
+        page,
+        limit,
+      };
     } catch (error) {
       this.handleServiceError(error, 'Products could not be listed');
     }
