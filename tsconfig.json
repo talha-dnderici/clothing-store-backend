@@ -22,7 +22,7 @@
     }
   },
   "include": [
-    "apps/**/*.ts",
+    "backend/apps/**/*.ts",
     "libs/**/*.ts"
   ],
   "exclude": [

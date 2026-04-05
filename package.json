@@ -6,18 +6,18 @@
   "license": "MIT",
   "scripts": {
     "build": "nest build api-gateway && nest build login-service && nest build register-service && nest build main-service && nest build card-service",
-    "start": "node dist/apps/api-gateway/src/main.js",
+    "start": "node dist/backend/apps/api-gateway/src/main.js",
     "start:dev:gateway": "nest start api-gateway --watch",
     "start:dev:login": "nest start login-service --watch",
     "start:dev:register": "nest start register-service --watch",
     "start:dev:main": "nest start main-service --watch",
     "start:dev:card": "nest start card-service --watch",
     "start:dev:frontend": "npm run dev --prefix frontend",
-    "start:prod:api-gateway": "node dist/apps/api-gateway/src/main.js",
-    "start:prod:login-service": "node dist/apps/login-service/src/main.js",
-    "start:prod:register-service": "node dist/apps/register-service/src/main.js",
-    "start:prod:main-service": "node dist/apps/main-service/src/main.js",
-    "start:prod:card-service": "node dist/apps/card-service/src/main.js"
+    "start:prod:api-gateway": "node dist/backend/apps/api-gateway/src/main.js",
+    "start:prod:login-service": "node dist/backend/apps/login-service/src/main.js",
+    "start:prod:register-service": "node dist/backend/apps/register-service/src/main.js",
+    "start:prod:main-service": "node dist/backend/apps/main-service/src/main.js",
+    "start:prod:card-service": "node dist/backend/apps/card-service/src/main.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
