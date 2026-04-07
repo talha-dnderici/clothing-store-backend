@@ -37,3 +37,10 @@ export class Card {
 }
 
 export const CardSchema = SchemaFactory.createForClass(Card);
+CardSchema.index(
+  { userId: 1, status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: 'active' },
+  },
+);

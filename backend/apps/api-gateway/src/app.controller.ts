@@ -25,7 +25,11 @@ import { CreateProductDto } from '../../main-service/src/dto/create-product.dto'
 import { ListProductsDto } from '../../main-service/src/dto/list-products.dto';
 import { UpdateCategoryDto } from '../../main-service/src/dto/update-category.dto';
 import { UpdateProductDto } from '../../main-service/src/dto/update-product.dto';
+import { AddCartItemDto } from '../../card-service/src/dto/add-cart-item.dto';
+import { CartUserDto } from '../../card-service/src/dto/cart-user.dto';
 import { CreateCardDto } from '../../card-service/src/dto/create-card.dto';
+import { RemoveCartItemDto } from '../../card-service/src/dto/remove-cart-item.dto';
+import { UpdateCartItemDto } from '../../card-service/src/dto/update-cart-item.dto';
 import { UpdateCardDto } from '../../card-service/src/dto/update-card.dto';
 
 @Controller()
@@ -235,6 +239,32 @@ export class AppController {
   @HttpCode(HttpStatus.CREATED)
   createCard(@Body() dto: CreateCardDto) {
     return this.sendMessage(this.cardClient, 'card.createCard', dto);
+  }
+
+  @Get('cart/:userId')
+  getActiveCart(@Param() params: CartUserDto) {
+    return this.sendMessage(this.cardClient, 'card.getActiveCart', params);
+  }
+
+  @Post('cart/items')
+  @HttpCode(HttpStatus.OK)
+  addItemToCart(@Body() dto: AddCartItemDto) {
+    return this.sendMessage(this.cardClient, 'card.addItemToCart', dto);
+  }
+
+  @Patch('cart/items')
+  updateCartItem(@Body() dto: UpdateCartItemDto) {
+    return this.sendMessage(this.cardClient, 'card.updateCartItem', dto);
+  }
+
+  @Delete('cart/items')
+  removeCartItem(@Body() dto: RemoveCartItemDto) {
+    return this.sendMessage(this.cardClient, 'card.removeCartItem', dto);
+  }
+
+  @Delete('cart/:userId')
+  clearCart(@Param() params: CartUserDto) {
+    return this.sendMessage(this.cardClient, 'card.clearCart', params);
   }
 
   @Get('cards')

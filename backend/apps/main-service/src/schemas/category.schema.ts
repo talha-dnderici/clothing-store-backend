@@ -17,7 +17,7 @@ export class Category {
   @Prop({ default: true })
   isActive!: boolean;
 
-  @Prop({ trim: true, default: null })
+  @Prop({ type: String, trim: true, default: null })
   parentCategoryId?: string | null;
 }
 
