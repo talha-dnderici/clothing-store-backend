@@ -5,6 +5,7 @@ import { createMongoConfig } from '@app/common/database/mongo.config';
 import { CardController } from './card.controller';
 import { CardService } from './card.service';
 import { Card, CardSchema } from './schemas/card.schema';
+import { Product, ProductSchema } from '../../main-service/src/schemas/product.schema';
 
 @Module({
   imports: [
@@ -16,7 +17,10 @@ import { Card, CardSchema } from './schemas/card.schema';
       inject: [ConfigService],
       useFactory: createMongoConfig,
     }),
-    MongooseModule.forFeature([{ name: Card.name, schema: CardSchema }]),
+    MongooseModule.forFeature([
+      { name: Card.name, schema: CardSchema },
+      { name: Product.name, schema: ProductSchema },
+    ]),
   ],
   controllers: [CardController],
   providers: [CardService],
