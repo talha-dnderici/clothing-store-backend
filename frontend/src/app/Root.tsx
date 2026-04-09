@@ -1,19 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Outlet } from 'react-router';
 import { Navbar } from './components/Navbar';
 import { CategoryMenu } from './components/CategoryMenu';
 
 export default function Root() {
-  const [cartCount, setCartCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('All');
+
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query);
+  }, []);
+
+  const handleCategoryChange = useCallback((category: string) => {
+    setActiveCategory(category);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-gray-900 font-sans selection:bg-black selection:text-white flex flex-col">
-      <Navbar cartCount={cartCount} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
-      <CategoryMenu />
-      
+      <Navbar onSearch={handleSearch} />
+      <CategoryMenu activeCategory={activeCategory} onCategoryChange={handleCategoryChange} />
+
       <main className="flex-1">
-        <Outlet context={{ cartCount, setCartCount, searchQuery, setSearchQuery }} />
+        <Outlet context={{ searchQuery, activeCategory }} />
       </main>
 
       <footer className="border-t border-gray-200 bg-white py-12 mt-auto">

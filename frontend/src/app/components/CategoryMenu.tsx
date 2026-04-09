@@ -1,21 +1,30 @@
 import React from 'react';
 
-const categories = ['New Arrivals', 'Men', 'Women', 'Shoes', 'Accessories', 'Sale'];
+interface CategoryMenuProps {
+  activeCategory: string;
+  onCategoryChange: (category: string) => void;
+}
 
-export const CategoryMenu = () => {
+const categories = ['All', 'Men', 'Women', 'Shoes', 'Accessories', 'Unisex'];
+
+export const CategoryMenu: React.FC<CategoryMenuProps> = ({ activeCategory, onCategoryChange }) => {
   return (
     <nav className="border-b border-gray-200 bg-white shadow-sm">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-14 items-center overflow-x-auto whitespace-nowrap scrollbar-hide">
-          <ul className="flex gap-8 px-1">
+          <ul className="flex gap-1 px-1">
             {categories.map((category) => (
               <li key={category}>
-                <a
-                  href={`#${category.toLowerCase().replace(' ', '-')}`}
-                  className="text-sm font-medium text-gray-600 hover:text-black transition-colors"
+                <button
+                  onClick={() => onCategoryChange(category)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                    activeCategory === category
+                      ? 'bg-black text-white shadow-sm'
+                      : 'text-gray-600 hover:text-black hover:bg-gray-100'
+                  }`}
                 >
                   {category}
-                </a>
+                </button>
               </li>
             ))}
           </ul>
