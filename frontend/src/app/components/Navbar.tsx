@@ -12,7 +12,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
   const { user, logout } = useAuth();
-  const { totalItems, lastAction } = useCart();
+  const { totalItems } = useCart();
   const [cartOpen, setCartOpen] = useState(false);
 
   return (
@@ -63,7 +63,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
               >
                 <ShoppingCart size={24} />
                 {totalItems > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black text-[10px] font-bold text-white shadow-sm animate-bounce-once">
+                  <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black text-[10px] font-bold text-white shadow-sm">
                     {totalItems}
                   </span>
                 )}
@@ -71,16 +71,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
             </div>
           </div>
         </div>
-
-        {/* Toast */}
-        {lastAction && (
-          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 rounded-full bg-black text-white text-sm font-medium px-5 py-2 shadow-xl animate-fade-in-up">
-            ✓ {lastAction}
-          </div>
-        )}
       </header>
 
       <CartDrawer isOpen={cartOpen} onClose={() => setCartOpen(false)} />
     </>
   );
 };
+
