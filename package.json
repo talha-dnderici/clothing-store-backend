@@ -13,6 +13,7 @@
     "start:dev:main": "nest start main-service --watch",
     "start:dev:card": "nest start card-service --watch",
     "start:dev:frontend": "npm run dev --prefix frontend",
+    "seed:db": "node scripts/seed.js",
     "start:prod:api-gateway": "node dist/backend/apps/api-gateway/src/main.js",
     "start:prod:login-service": "node dist/backend/apps/login-service/src/main.js",
     "start:prod:register-service": "node dist/backend/apps/register-service/src/main.js",

@@ -60,6 +60,6 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     ports:
-      - "5173:5173"
+      - "5173:3001"
     environment:
       - VITE_API_BASE_URL=http://backend:3000
