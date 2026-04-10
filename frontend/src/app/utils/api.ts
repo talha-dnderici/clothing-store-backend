@@ -1,7 +1,6 @@
 /**
  * Lightweight API client that talks to the backend gateway.
- * When the backend is unreachable the pages fall back to local mock data,
- * so failures here are non-fatal.
+ * Pages consume backend data directly and surface failures in the UI.
  */
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
@@ -24,6 +23,9 @@ export const api = {
   },
   getProduct(id: string) {
     return request(`/products/${id}`);
+  },
+  getCategories() {
+    return request('/categories');
   },
 
   // Auth

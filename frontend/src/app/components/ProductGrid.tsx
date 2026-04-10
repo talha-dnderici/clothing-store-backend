@@ -1,10 +1,10 @@
 import React from 'react';
-import { MockProduct } from '../data/mockProducts';
+import { CatalogProduct } from '../types/catalog';
 import { ProductCard } from './ProductCard';
 import { PackageSearch } from 'lucide-react';
 
 interface ProductGridProps {
-  products: MockProduct[];
+  products: CatalogProduct[];
   isLoading?: boolean;
 }
 

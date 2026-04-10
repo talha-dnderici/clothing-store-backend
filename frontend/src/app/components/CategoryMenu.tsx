@@ -2,12 +2,15 @@ import React from 'react';
 
 interface CategoryMenuProps {
   activeCategory: string;
+  categories: string[];
   onCategoryChange: (category: string) => void;
 }
 
-const categories = ['All', 'Men', 'Women', 'Shoes', 'Accessories', 'Unisex'];
-
-export const CategoryMenu: React.FC<CategoryMenuProps> = ({ activeCategory, onCategoryChange }) => {
+export const CategoryMenu: React.FC<CategoryMenuProps> = ({
+  activeCategory,
+  categories,
+  onCategoryChange,
+}) => {
   return (
     <nav className="border-b border-gray-200 bg-white shadow-sm">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

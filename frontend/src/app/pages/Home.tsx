@@ -6,8 +6,11 @@ import { HeroBanner } from '../components/HeroBanner';
 import { PopularProducts } from '../components/PopularProducts';
 import { api } from '../utils/api';
 import { mapProducts } from '../utils/mapProduct';
-import { MockProduct } from '../data/mockProducts';
-import { mockProducts as fallbackProducts } from '../data/mockProducts';
+import { CatalogProduct } from '../types/catalog';
+
+type ProductsResponse = {
+  items?: unknown[];
+};
 
 export default function Home() {
   const { searchQuery, activeCategory } = useOutletContext<{
@@ -15,43 +18,33 @@ export default function Home() {
     activeCategory: string;
   }>();
   const [sortBy, setSortBy] = useState('');
-  const [products, setProducts] = useState<MockProduct[]>(fallbackProducts);
+  const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  // Fetch products from API with search, sort, and category params
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
+    setErrorMessage('');
 
     const params: Record<string, string> = {};
-    if (searchQuery) params.search = searchQuery;
+    if (searchQuery) params.q = searchQuery;
+    if (activeCategory !== 'All') params.category = activeCategory;
     if (sortBy === 'PriceLow') params.sort = 'price_asc';
     else if (sortBy === 'PriceHigh') params.sort = 'price_desc';
-    else if (sortBy === 'Rating') params.sort = 'rating';
+    else if (sortBy === 'Rating') params.sort = 'popularity';
 
     api.getProducts(params)
       .then(res => {
         if (!cancelled) {
-          setProducts(mapProducts(res.data));
+          const payload = res.data as ProductsResponse;
+          setProducts(mapProducts(payload.items ?? []));
         }
       })
       .catch(() => {
-        // Fallback to local mock data if API is unavailable
         if (!cancelled) {
-          let fallback = [...fallbackProducts];
-
-          if (searchQuery) {
-            const term = searchQuery.toLowerCase();
-            fallback = fallback.filter(
-              p => p.name.toLowerCase().includes(term) || p.description.toLowerCase().includes(term)
-            );
-          }
-
-          if (sortBy === 'PriceLow') fallback.sort((a, b) => a.price - b.price);
-          else if (sortBy === 'PriceHigh') fallback.sort((a, b) => b.price - a.price);
-          else if (sortBy === 'Rating') fallback.sort((a, b) => b.rating - a.rating);
-
-          setProducts(fallback);
+          setProducts([]);
+          setErrorMessage('Products could not be loaded from the database.');
         }
       })
       .finally(() => {
@@ -59,27 +52,24 @@ export default function Home() {
       });
 
     return () => { cancelled = true; };
-  }, [searchQuery, sortBy]);
-
-  // Category filtering (applied client-side since backend may not have this param yet)
-  const displayedProducts = activeCategory === 'All'
-    ? products
-    : products.filter(p => p.category === activeCategory);
+  }, [activeCategory, searchQuery, sortBy]);
 
   return (
     <div>
-      {/* Hero Banner — only show when not searching */}
       {!searchQuery && <HeroBanner />}
 
-      {/* Popular section — only show when on "All" with no search */}
       {!searchQuery && activeCategory === 'All' && (
         <PopularProducts products={products} />
       )}
 
-      {/* Main product grid */}
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <FilterSection sortBy={sortBy} setSortBy={setSortBy} count={displayedProducts.length} />
-        <ProductGrid products={displayedProducts} isLoading={isLoading} />
+        <FilterSection sortBy={sortBy} setSortBy={setSortBy} count={products.length} />
+        {errorMessage ? (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            {errorMessage}
+          </div>
+        ) : null}
+        <ProductGrid products={products} isLoading={isLoading} />
       </div>
     </div>
   );

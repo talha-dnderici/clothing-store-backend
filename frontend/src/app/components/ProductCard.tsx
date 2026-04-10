@@ -1,11 +1,11 @@
 import React from 'react';
 import { ShoppingCart, Star } from 'lucide-react';
 import { Link } from 'react-router';
-import { MockProduct } from '../data/mockProducts';
+import { CatalogProduct } from '../types/catalog';
 import { useCart } from '../context/CartContext';
 
 interface ProductCardProps {
-  product: MockProduct;
+  product: CatalogProduct;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {

@@ -1,10 +1,10 @@
 /**
- * Maps raw backend product objects to the MockProduct shape used by the UI.
+ * Maps raw backend product objects to the catalog product shape used by the UI.
  * The backend may use _id (MongoDB) and slightly different field names,
  * so this adapter keeps the rest of the frontend consistent.
  */
 
-import { MockProduct } from '../data/mockProducts';
+import { CatalogProduct } from '../types/catalog';
 
 // Shape coming from the NestJS backend
 interface BackendProduct {
@@ -22,9 +22,10 @@ interface BackendProduct {
   imageUrl?: string;
   rating?: number;
   category?: string;
+  categoryName?: string;
 }
 
-export function mapProduct(raw: BackendProduct): MockProduct {
+export function mapProduct(raw: BackendProduct): CatalogProduct {
   return {
     id: raw._id || raw.id || '',
     name: raw.name || 'Unnamed Product',
@@ -37,11 +38,11 @@ export function mapProduct(raw: BackendProduct): MockProduct {
     distributor: raw.distributor || 'Unknown',
     imageUrl: raw.imageUrl || 'https://via.placeholder.com/400',
     rating: raw.rating ?? 4.0,
-    category: raw.category || 'Uncategorized',
+    category: raw.categoryName || raw.category || 'Uncategorized',
   };
 }
 
-export function mapProducts(rawList: BackendProduct[]): MockProduct[] {
+export function mapProducts(rawList: BackendProduct[]): CatalogProduct[] {
   if (!Array.isArray(rawList)) return [];
   return rawList.map(mapProduct);
 }

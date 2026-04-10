@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router';
 import { Star, ShoppingCart, ArrowLeft, Check, Shield, Truck, Package, AlertTriangle } from 'lucide-react';
-import { MockProduct } from '../data/mockProducts';
-import { mockProducts as fallbackProducts } from '../data/mockProducts';
 import { api } from '../utils/api';
 import { mapProduct } from '../utils/mapProduct';
 import { useCart } from '../context/CartContext';
 import { QuantitySelector } from '../components/QuantitySelector';
+import { CatalogProduct } from '../types/catalog';
 
 export default function ProductDetail() {
   const { id } = useParams();
   const { addToCart } = useCart();
-  const [product, setProduct] = useState<MockProduct | null>(null);
+  const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [addedFeedback, setAddedFeedback] = useState(false);
   const [activeImage, setActiveImage] = useState('');
@@ -21,6 +21,7 @@ export default function ProductDetail() {
     let cancelled = false;
     setIsLoading(true);
     setQuantity(1);
+    setErrorMessage('');
 
     api.getProduct(id!)
       .then(res => {
@@ -32,9 +33,9 @@ export default function ProductDetail() {
       })
       .catch(() => {
         if (!cancelled) {
-          const found = fallbackProducts.find(p => p.id === id) || fallbackProducts[0];
-          setProduct(found);
-          setActiveImage(found.imageUrl);
+          setProduct(null);
+          setActiveImage('');
+          setErrorMessage('This product could not be loaded from the database.');
         }
       })
       .finally(() => {
@@ -44,7 +45,7 @@ export default function ProductDetail() {
     return () => { cancelled = true; };
   }, [id]);
 
-  if (isLoading || !product) {
+  if (isLoading) {
     return (
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 animate-pulse">
@@ -56,6 +57,24 @@ export default function ProductDetail() {
             <div className="h-40 rounded-2xl bg-gray-200" />
             <div className="h-14 rounded-xl bg-gray-200" />
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!product) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-16">
+        <Link
+          to="/"
+          className="inline-flex items-center text-sm font-medium text-gray-500 hover:text-black mb-8 transition-colors group"
+        >
+          <ArrowLeft size={16} className="mr-2 transition-transform group-hover:-translate-x-1" />
+          Back to Products
+        </Link>
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-6 py-10 text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-3">Product unavailable</h1>
+          <p className="text-sm text-red-700">{errorMessage || 'The requested product could not be found.'}</p>
         </div>
       </div>
     );
