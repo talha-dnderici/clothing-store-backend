@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, SortOrder } from 'mongoose';
+import { isValidObjectId, Model, SortOrder } from 'mongoose';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ListProductsDto } from './dto/list-products.dto';
@@ -50,6 +50,62 @@ export class MainService {
     };
   }
 
+  private async attachCategoryMetadata<T extends { categoryIds?: string[] }>(
+    products: T[],
+  ) {
+    const categoryIds = [
+      ...new Set(
+        products.flatMap((product) =>
+          (product.categoryIds ?? []).map((categoryId) => categoryId.trim()).filter(Boolean),
+        ),
+      ),
+    ];
+
+    if (!categoryIds.length) {
+      return products.map((product) => ({
+        ...product,
+        category: 'Uncategorized',
+        categoryName: 'Uncategorized',
+        categories: [],
+      }));
+    }
+
+    const categories = await this.categoryModel
+      .find({ _id: { $in: categoryIds } })
+      .select('_id name slug')
+      .lean()
+      .exec();
+
+    const categoryMap = new Map(
+      categories.map((category) => [
+        category._id.toString(),
+        {
+          id: category._id.toString(),
+          name: category.name,
+          slug: category.slug,
+        },
+      ]),
+    );
+
+    return products.map((product) => {
+      const mappedCategories = (product.categoryIds ?? [])
+        .map((categoryId) => categoryMap.get(categoryId))
+        .filter(
+          (
+            category,
+          ): category is { id: string; name: string; slug: string | undefined } =>
+            Boolean(category),
+        );
+
+      return {
+        ...product,
+        category: mappedCategories[0]?.name ?? 'Uncategorized',
+        categoryName: mappedCategories[0]?.name ?? 'Uncategorized',
+        categories: mappedCategories,
+      };
+    });
+  }
+
   private createSlug(value: string) {
     return value
       .trim()
@@ -70,14 +126,18 @@ export class MainService {
 
   private async findCategoryIdByFilter(categoryFilter: string) {
     const trimmedFilter = categoryFilter.trim();
+    const orConditions: Array<Record<string, unknown>> = [
+      { slug: trimmedFilter.toLowerCase() },
+      { name: new RegExp(`^${trimmedFilter}$`, 'i') },
+    ];
+
+    if (isValidObjectId(trimmedFilter)) {
+      orConditions.unshift({ _id: trimmedFilter });
+    }
 
     const category = await this.categoryModel
       .findOne({
-        $or: [
-          { _id: trimmedFilter },
-          { slug: trimmedFilter.toLowerCase() },
-          { name: new RegExp(`^${trimmedFilter}$`, 'i') },
-        ],
+        $or: orConditions,
       })
       .select('_id')
       .lean()
@@ -217,8 +277,11 @@ export class MainService {
         this.productModel.countDocuments(filter).exec(),
       ]);
 
+      const sanitizedProducts = products.map((product) => this.sanitizeProduct(product));
+      const hydratedProducts = await this.attachCategoryMetadata(sanitizedProducts);
+
       return {
-        items: products.map((product) => this.sanitizeProduct(product)),
+        items: hydratedProducts,
         total,
         page,
         limit,
@@ -236,7 +299,11 @@ export class MainService {
         throw new NotFoundException('Product not found');
       }
 
-      return this.sanitizeProduct(product);
+      const [hydratedProduct] = await this.attachCategoryMetadata([
+        this.sanitizeProduct(product),
+      ]);
+
+      return hydratedProduct;
     } catch (error) {
       this.handleServiceError(error, 'Product could not be fetched');
     }

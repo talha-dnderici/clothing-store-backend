@@ -5,6 +5,11 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.enableCors({
+    origin: true,
+    credentials: true,
+  });
+
   // Global validation keeps DTO rules active across the whole gateway
   // and automatically strips unexpected fields from incoming requests.
   app.useGlobalPipes(
