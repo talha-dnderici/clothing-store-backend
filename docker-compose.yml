@@ -75,11 +75,18 @@ services:
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/clothing_store}
       CARD_SERVICE_HOST: 0.0.0.0
       CARD_SERVICE_PORT: 4004
-      SMTP_HOST: mailpit
-      SMTP_PORT: 1025
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
       SMTP_DISABLED: ${SMTP_DISABLED:-false}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-false}
+      SMTP_REJECT_UNAUTHORIZED: ${SMTP_REJECT_UNAUTHORIZED:-true}
+      SMTP_CLIENT_NAME: ${SMTP_CLIENT_NAME:-aura.local}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
       MAIL_FROM: ${MAIL_FROM:-AURA Store <no-reply@aura.local>}
       MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@aura.local}
+      MAIL_OVERRIDE_TO: ${MAIL_OVERRIDE_TO:-}
     depends_on:
       mongo:
         condition: service_healthy

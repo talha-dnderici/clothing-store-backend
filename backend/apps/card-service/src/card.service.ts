@@ -9,6 +9,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { RpcException } from '@nestjs/microservices';
 import { Model } from 'mongoose';
 import * as net from 'node:net';
+import * as tls from 'node:tls';
 import {
   Delivery,
   DeliveryDocument,
@@ -184,7 +185,23 @@ export class CardService {
       .join('\r\n');
   }
 
-  private composeInvoiceEmail(invoice: InvoiceDocument, order: OrderDocument) {
+  private isEnabled(value: string | undefined) {
+    return ['1', 'true', 'yes', 'on'].includes((value ?? '').toLowerCase());
+  }
+
+  private getInvoiceRecipient(customerEmail: string) {
+    return (
+      process.env.MAIL_OVERRIDE_TO?.trim() ||
+      process.env.MAIL_TO?.trim() ||
+      customerEmail
+    );
+  }
+
+  private composeInvoiceEmail(
+    invoice: InvoiceDocument,
+    order: OrderDocument,
+    to: string,
+  ) {
     const boundary = `invoice-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const fileName = invoice.pdfFileName || this.buildInvoiceFileName(order._id.toString());
     const from = process.env.MAIL_FROM || 'AURA Store <no-reply@aura.local>';
@@ -199,7 +216,7 @@ export class CardService {
 
     return [
       `From: ${from}`,
-      `To: ${invoice.customerEmail}`,
+      `To: ${to}`,
       `Subject: ${subject}`,
       'MIME-Version: 1.0',
       `Content-Type: multipart/mixed; boundary="${boundary}"`,
@@ -224,18 +241,43 @@ export class CardService {
   private async sendSmtpMail(to: string, message: string) {
     const host = process.env.SMTP_HOST || 'localhost';
     const port = Number(process.env.SMTP_PORT || 1025);
+    const secure = this.isEnabled(process.env.SMTP_SECURE) || port === 465;
+    const requireTls = this.isEnabled(process.env.SMTP_REQUIRE_TLS) || port === 587;
+    const rejectUnauthorized =
+      process.env.SMTP_REJECT_UNAUTHORIZED?.toLowerCase() !== 'false';
+    const username = process.env.SMTP_USER?.trim();
+    const password = process.env.SMTP_PASS?.replace(/\s+/g, '') ?? '';
+    const clientName = process.env.SMTP_CLIENT_NAME || 'aura.local';
     const fromAddress =
       process.env.MAIL_FROM_ADDRESS ||
       (process.env.MAIL_FROM?.match(/<([^>]+)>/)?.[1] ?? 'no-reply@aura.local');
 
     await new Promise<void>((resolve, reject) => {
-      const socket = net.createConnection({ host, port });
+      let socket: net.Socket | tls.TLSSocket = secure
+        ? tls.connect({ host, port, servername: host, rejectUnauthorized })
+        : net.createConnection({ host, port });
       let responseBuffer = '';
       let closed = false;
       const cleanup = () => {
         closed = true;
         socket.removeAllListeners();
         socket.end();
+      };
+      const attachSocketListeners = () => {
+        socket.setTimeout(10000);
+        socket.on('data', (chunk) => {
+          responseBuffer += chunk.toString('utf8');
+        });
+        socket.once('timeout', () => {
+          cleanup();
+          reject(new Error('SMTP connection timed out'));
+        });
+        socket.once('error', (error) => {
+          if (!closed) {
+            cleanup();
+            reject(error);
+          }
+        });
       };
       const waitForResponse = (expectedCodes: number[]) =>
         new Promise<void>((resolveWait, rejectWait) => {
@@ -269,25 +311,47 @@ export class CardService {
         socket.write(`${command}\r\n`);
         await waitForResponse(expectedCodes);
       };
+      const upgradeToTls = async () => {
+        const plainSocket = socket as net.Socket;
+        plainSocket.removeAllListeners('data');
+        plainSocket.removeAllListeners('timeout');
+        plainSocket.removeAllListeners('error');
+        responseBuffer = '';
 
-      socket.setTimeout(10000);
-      socket.on('data', (chunk) => {
-        responseBuffer += chunk.toString('utf8');
-      });
-      socket.once('timeout', () => {
-        cleanup();
-        reject(new Error('SMTP connection timed out'));
-      });
-      socket.once('error', (error) => {
-        if (!closed) {
-          cleanup();
-          reject(error);
+        socket = tls.connect({
+          socket: plainSocket,
+          servername: host,
+          rejectUnauthorized,
+        });
+        attachSocketListeners();
+
+        await new Promise<void>((resolveTls, rejectTls) => {
+          socket.once('secureConnect', resolveTls);
+          socket.once('error', rejectTls);
+        });
+      };
+      const authenticate = async () => {
+        if (!username || !password) {
+          return;
         }
-      });
-      socket.once('connect', async () => {
+
+        const token = Buffer.from(`\0${username}\0${password}`).toString('base64');
+        await writeCommand(`AUTH PLAIN ${token}`, [235]);
+      };
+
+      attachSocketListeners();
+      socket.once(secure ? 'secureConnect' : 'connect', async () => {
         try {
           await waitForResponse([220]);
-          await writeCommand('EHLO aura.local', [250]);
+          await writeCommand(`EHLO ${clientName}`, [250]);
+
+          if (requireTls && !secure) {
+            await writeCommand('STARTTLS', [220]);
+            await upgradeToTls();
+            await writeCommand(`EHLO ${clientName}`, [250]);
+          }
+
+          await authenticate();
           await writeCommand(`MAIL FROM:<${fromAddress}>`, [250]);
           await writeCommand(`RCPT TO:<${to}>`, [250, 251]);
           await writeCommand('DATA', [354]);
@@ -321,9 +385,10 @@ export class CardService {
     }
 
     try {
+      const to = this.getInvoiceRecipient(invoice.customerEmail);
       await this.sendSmtpMail(
-        invoice.customerEmail,
-        this.composeInvoiceEmail(invoice, order),
+        to,
+        this.composeInvoiceEmail(invoice, order, to),
       );
       invoice.emailedToCustomer = true;
       invoice.emailStatus = 'sent';
