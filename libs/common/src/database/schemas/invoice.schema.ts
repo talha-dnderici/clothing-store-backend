@@ -34,10 +34,10 @@ export class Invoice {
 
   @Prop({
     type: String,
-    enum: ['pending', 'sent', 'failed', 'skipped'],
+    enum: ['pending', 'sending', 'sent', 'failed', 'skipped'],
     default: 'pending',
   })
-  emailStatus!: 'pending' | 'sent' | 'failed' | 'skipped';
+  emailStatus!: 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';
 
   @Prop({ default: '' })
   emailError!: string;

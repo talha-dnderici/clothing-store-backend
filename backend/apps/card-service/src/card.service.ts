@@ -10,6 +10,7 @@ import { RpcException } from '@nestjs/microservices';
 import { Model } from 'mongoose';
 import * as net from 'node:net';
 import * as tls from 'node:tls';
+const PDFDocument = require('pdfkit');
 import {
   Delivery,
   DeliveryDocument,
@@ -49,6 +50,8 @@ export class CardService {
   ) {}
 
   private readonly deliveryStatusOrder = ['processing', 'in-transit', 'delivered'] as const;
+  private readonly invoiceSiteName = 'aura-clothing.com';
+  private readonly invoiceSupportEmail = 'support@aura-clothing.com';
 
   private handleServiceError(error: unknown, fallbackMessage: string): never {
     if (error instanceof HttpException) {
@@ -113,64 +116,264 @@ export class CardService {
     return `${this.buildInvoiceNumber(orderId)}.pdf`;
   }
 
-  private escapePdfText(value: string) {
-    return value.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  private formatMoney(value: number) {
+    return `$${Number(value || 0).toFixed(2)}`;
   }
 
-  private buildInvoicePdf(order: OrderDocument, invoiceNumber: string) {
-    const lines = [
-      `Invoice ${invoiceNumber}`,
-      `Order ID: ${order._id.toString()}`,
-      `Customer: ${order.customerEmail}`,
-      `Delivery Address: ${order.deliveryAddress}`,
-      `Status: ${order.status}`,
-      '',
-      'Items:',
-      ...order.items.map((item) => {
-        const discountedPrice =
+  private formatInvoiceDate(value: Date | string | undefined) {
+    const date = value ? new Date(value) : new Date();
+    return new Intl.DateTimeFormat('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date);
+  }
+
+  private async loadPrimaryProductVisual(order: OrderDocument) {
+    const firstItem = order.items[0];
+
+    if (!firstItem?.productId) {
+      return null;
+    }
+
+    const product = await this.productModel
+      .findById(firstItem.productId)
+      .lean()
+      .exec();
+    const imageUrl =
+      typeof product?.imageUrl === 'string' ? product.imageUrl.trim() : '';
+
+    if (!imageUrl) {
+      return null;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const response = await fetch(imageUrl, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      return Buffer.from(await response.arrayBuffer());
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async buildInvoicePdf(order: OrderDocument, invoiceNumber: string) {
+    const createdAt =
+      (order as unknown as { createdAt?: Date }).createdAt ?? new Date();
+    const subtotal = order.items.reduce(
+      (sum, item) => sum + item.unitPrice * item.quantity,
+      0,
+    );
+    const discountValue = subtotal - order.totalPrice;
+    const primaryImage = await this.loadPrimaryProductVisual(order);
+
+    return await new Promise<Buffer>((resolve, reject) => {
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: 44,
+        compress: true,
+        info: {
+          Title: `${invoiceNumber} - AURA Clothing`,
+          Author: 'AURA Clothing',
+          Subject: 'Customer invoice',
+        },
+      });
+      const chunks: Buffer[] = [];
+      const left = doc.page.margins.left;
+      const right = doc.page.width - doc.page.margins.right;
+      const contentWidth = right - left;
+      const heroY = 126;
+      const heroHeight = 176;
+      const heroWidth = 178;
+      const heroX = right - heroWidth;
+      const contentX = left;
+      const mainWidth = contentWidth - heroWidth - 24;
+      let cursorY = 0;
+
+      doc.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      doc.rect(0, 0, doc.page.width, 112).fill('#111827');
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(28).text('AURA', left, 34);
+      doc.font('Helvetica').fontSize(11).fillColor('#d1d5db');
+      doc.text('Clothing Store', left, 66);
+      doc.text(this.invoiceSiteName, left, 82);
+
+      doc.roundedRect(right - 164, 26, 164, 70, 14).fill('#1f2937');
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11);
+      doc.text('TAX INVOICE', right - 146, 40);
+      doc.fontSize(20).text(invoiceNumber, right - 146, 56, {
+        width: 132,
+      });
+      doc.fillColor('#cbd5e1').font('Helvetica').fontSize(9);
+      doc.text(`Generated ${this.formatInvoiceDate(createdAt)}`, right - 146, 82, {
+        width: 132,
+      });
+
+      doc.roundedRect(heroX, heroY, heroWidth, heroHeight, 18).fill('#f4f4f5');
+      if (primaryImage) {
+        try {
+          doc.image(primaryImage, heroX + 12, heroY + 12, {
+            fit: [heroWidth - 24, heroHeight - 24],
+            align: 'center',
+            valign: 'center',
+          });
+        } catch {
+          doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(16);
+          doc.text(order.items[0]?.productName ?? 'AURA Product', heroX + 18, heroY + 56, {
+            width: heroWidth - 36,
+            align: 'center',
+          });
+        }
+      } else {
+        doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(16);
+        doc.text(order.items[0]?.productName ?? 'AURA Product', heroX + 18, heroY + 52, {
+          width: heroWidth - 36,
+          align: 'center',
+        });
+        doc.font('Helvetica').fontSize(10).fillColor('#94a3b8');
+        doc.text('Visual preview unavailable', heroX + 18, heroY + 98, {
+          width: heroWidth - 36,
+          align: 'center',
+        });
+      }
+
+      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11);
+      doc.text('Bill To', contentX, heroY);
+      doc.font('Helvetica').fontSize(12).fillColor('#111827');
+      doc.text(order.customerEmail, contentX, heroY + 20, { width: mainWidth / 2 - 8 });
+      doc.fontSize(10).fillColor('#475569');
+      doc.text('Customer account', contentX, heroY + 40, { width: mainWidth / 2 - 8 });
+
+      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11);
+      doc.text('Ship To', contentX + mainWidth / 2 + 8, heroY);
+      doc.font('Helvetica').fontSize(12).fillColor('#111827');
+      doc.text(order.deliveryAddress, contentX + mainWidth / 2 + 8, heroY + 20, {
+        width: mainWidth / 2 - 8,
+      });
+
+      doc.roundedRect(contentX, heroY + 80, mainWidth, 84, 16).fill('#f8fafc');
+      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11);
+      doc.text('Payment Details', contentX + 18, heroY + 96);
+      doc.font('Helvetica').fontSize(10).fillColor('#475569');
+      doc.text('Status', contentX + 18, heroY + 118);
+      doc.text('Method', contentX + 160, heroY + 118);
+      doc.text('Order', contentX + 318, heroY + 118);
+      doc.fillColor('#111827').font('Helvetica-Bold').fontSize(12);
+      doc.text(order.paymentConfirmed ? 'Paid' : 'Pending', contentX + 18, heroY + 134);
+      doc.text('Secure checkout', contentX + 160, heroY + 134);
+      doc.text(order._id.toString(), contentX + 318, heroY + 134, { width: 176 });
+
+      cursorY = heroY + heroHeight + 28;
+      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(13);
+      doc.text('Order Summary', contentX, cursorY);
+      cursorY += 20;
+
+      const columns = {
+        item: contentX + 16,
+        qty: contentX + 310,
+        unit: contentX + 362,
+        discount: contentX + 436,
+        total: contentX + 506,
+      };
+
+      doc.roundedRect(contentX, cursorY, contentWidth, 28, 10).fill('#111827');
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9);
+      doc.text('ITEM', columns.item, cursorY + 9);
+      doc.text('QTY', columns.qty, cursorY + 9);
+      doc.text('UNIT', columns.unit, cursorY + 9);
+      doc.text('DISC', columns.discount, cursorY + 9);
+      doc.text('TOTAL', columns.total, cursorY + 9);
+      cursorY += 28;
+
+      order.items.forEach((item, index) => {
+        const rowHeight = 48;
+        const fill = index % 2 === 0 ? '#f8fafc' : '#ffffff';
+        const lineTotal =
           Math.round(
             item.unitPrice * item.quantity * (1 - item.discountRate / 100) * 100,
           ) / 100;
-        return `${item.quantity} x ${item.productName} - $${discountedPrice.toFixed(2)} (${item.discountRate}% discount)`;
-      }),
-      '',
-      `Total: $${order.totalPrice.toFixed(2)}`,
-      `Generated: ${new Date().toISOString()}`,
-    ];
-    const stream = [
-      'BT',
-      '/F1 18 Tf',
-      '50 760 Td',
-      `(${this.escapePdfText(lines[0])}) Tj`,
-      '/F1 10 Tf',
-      ...lines.slice(1).map((line) => `0 -18 Td (${this.escapePdfText(line)}) Tj`),
-      'ET',
-    ].join('\n');
-    const objects = [
-      '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj',
-      '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj',
-      '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj',
-      '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj',
-      `5 0 obj\n<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream\nendobj`,
-    ];
-    let pdf = '%PDF-1.4\n';
-    const offsets: number[] = [];
 
-    for (const object of objects) {
-      offsets.push(Buffer.byteLength(pdf, 'utf8'));
-      pdf += `${object}\n`;
-    }
+        doc.rect(contentX, cursorY, contentWidth, rowHeight).fill(fill);
+        doc.fillColor('#111827').font('Helvetica-Bold').fontSize(11);
+        doc.text(item.productName, columns.item, cursorY + 11, {
+          width: 270,
+        });
+        doc.font('Helvetica').fontSize(9).fillColor('#64748b');
+        doc.text(`SKU ${item.productId.slice(-8).toUpperCase()}`, columns.item, cursorY + 28);
+        doc.fillColor('#111827').font('Helvetica').fontSize(10);
+        doc.text(String(item.quantity), columns.qty, cursorY + 18);
+        doc.text(this.formatMoney(item.unitPrice), columns.unit, cursorY + 18);
+        doc.text(`${item.discountRate}%`, columns.discount, cursorY + 18);
+        doc.font('Helvetica-Bold').text(this.formatMoney(lineTotal), columns.total, cursorY + 18);
+        cursorY += rowHeight;
+      });
 
-    const xrefOffset = Buffer.byteLength(pdf, 'utf8');
-    pdf += `xref\n0 ${objects.length + 1}\n`;
-    pdf += '0000000000 65535 f \n';
-    pdf += offsets
-      .map((offset) => `${offset.toString().padStart(10, '0')} 00000 n \n`)
-      .join('');
-    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n`;
-    pdf += `startxref\n${xrefOffset}\n%%EOF\n`;
+      cursorY += 20;
+      const summaryWidth = 210;
+      const summaryX = right - summaryWidth;
+      doc.roundedRect(summaryX, cursorY, summaryWidth, 112, 16).fill('#f8fafc');
+      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(12);
+      doc.text('Payment Summary', summaryX + 16, cursorY + 16);
+      doc.font('Helvetica').fontSize(10).fillColor('#475569');
+      doc.text('Subtotal', summaryX + 16, cursorY + 42);
+      doc.text(this.formatMoney(subtotal), summaryX + 116, cursorY + 42, {
+        width: 78,
+        align: 'right',
+      });
+      doc.text('Discounts', summaryX + 16, cursorY + 62);
+      doc.text(`-${this.formatMoney(discountValue)}`, summaryX + 116, cursorY + 62, {
+        width: 78,
+        align: 'right',
+      });
+      doc.moveTo(summaryX + 16, cursorY + 84).lineTo(summaryX + summaryWidth - 16, cursorY + 84).strokeColor('#cbd5e1').stroke();
+      doc.fillColor('#111827').font('Helvetica-Bold').fontSize(13);
+      doc.text('Grand Total', summaryX + 16, cursorY + 92);
+      doc.text(this.formatMoney(order.totalPrice), summaryX + 108, cursorY + 92, {
+        width: 86,
+        align: 'right',
+      });
 
-    return Buffer.from(pdf, 'utf8');
+      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(12);
+      doc.text('Notes', contentX, cursorY + 8);
+      doc.font('Helvetica').fontSize(10).fillColor('#475569');
+      doc.text(
+        'Thank you for shopping with AURA. Keep this invoice for returns, delivery follow-up, and warranty questions. If you need help, contact our support team with your invoice number.',
+        contentX,
+        cursorY + 30,
+        { width: contentWidth - summaryWidth - 26, lineGap: 4 },
+      );
+
+      doc.rect(0, doc.page.height - 62, doc.page.width, 62).fill('#111827');
+      doc.fillColor('#d1d5db').font('Helvetica').fontSize(9);
+      doc.text(
+        `AURA Clothing  •  ${this.invoiceSiteName}  •  ${this.invoiceSupportEmail}`,
+        left,
+        doc.page.height - 40,
+        { width: contentWidth, align: 'center' },
+      );
+      doc.text(
+        'This document confirms payment and delivery details for the order above.',
+        left,
+        doc.page.height - 26,
+        { width: contentWidth, align: 'center' },
+      );
+
+      doc.end();
+    });
   }
 
   private wrapBase64(value: string) {
@@ -207,11 +410,15 @@ export class CardService {
     const from = process.env.MAIL_FROM || 'AURA Store <no-reply@aura.local>';
     const subject = `Invoice ${invoice.invoiceNumber}`;
     const textBody = [
-      `Your invoice ${invoice.invoiceNumber} is attached.`,
+      `Thanks for shopping with AURA Clothing.`,
+      `Your invoice ${invoice.invoiceNumber} is attached as a PDF.`,
       '',
       `Order ID: ${order._id.toString()}`,
-      `Total: $${order.totalPrice.toFixed(2)}`,
+      `Total: ${this.formatMoney(order.totalPrice)}`,
       `Delivery status: ${order.status}`,
+      `Website: ${this.invoiceSiteName}`,
+      '',
+      `Questions? Reply to ${this.invoiceSupportEmail}.`,
     ].join('\r\n');
 
     return [
@@ -384,6 +591,41 @@ export class CardService {
       return invoice;
     }
 
+    if (!force) {
+      const latestInvoice = await this.invoiceModel.findById(invoice._id).exec();
+
+      if (!latestInvoice) {
+        throw new NotFoundException('Invoice not found');
+      }
+
+      if (latestInvoice.emailedToCustomer) {
+        return latestInvoice;
+      }
+
+      const lockedInvoice = await this.invoiceModel
+        .findOneAndUpdate(
+          {
+            _id: invoice._id,
+            emailedToCustomer: false,
+            emailStatus: { $ne: 'sending' },
+          },
+          {
+            $set: {
+              emailStatus: 'sending',
+              emailError: '',
+            },
+          },
+          { new: true },
+        )
+        .exec();
+
+      if (!lockedInvoice) {
+        return (await this.invoiceModel.findById(invoice._id).exec()) ?? invoice;
+      }
+
+      invoice = lockedInvoice;
+    }
+
     try {
       const to = this.getInvoiceRecipient(invoice.customerEmail);
       await this.sendSmtpMail(
@@ -551,7 +793,9 @@ export class CardService {
     const orderId = order._id.toString();
     const invoiceNumber = this.buildInvoiceNumber(orderId);
     const pdfFileName = this.buildInvoiceFileName(orderId);
-    const pdfBase64 = this.buildInvoicePdf(order, invoiceNumber).toString('base64');
+    const pdfBase64 = (await this.buildInvoicePdf(order, invoiceNumber)).toString(
+      'base64',
+    );
     const invoice = await this.invoiceModel
       .findOneAndUpdate(
         { orderId },
@@ -1078,9 +1322,9 @@ export class CardService {
         (await this.createInvoiceForOrder(order, false));
 
       if (!invoice.pdfBase64) {
-        invoice.pdfBase64 = this
-          .buildInvoicePdf(order, invoice.invoiceNumber)
-          .toString('base64');
+        invoice.pdfBase64 = (
+          await this.buildInvoicePdf(order, invoice.invoiceNumber)
+        ).toString('base64');
         invoice.pdfFileName =
           invoice.pdfFileName || this.buildInvoiceFileName(orderId);
         invoice.pdfUrl = `/orders/${orderId}/invoice/pdf`;
@@ -1110,9 +1354,9 @@ export class CardService {
         (await this.createInvoiceForOrder(order, false));
 
       if (!invoice.pdfBase64) {
-        invoice.pdfBase64 = this
-          .buildInvoicePdf(order, invoice.invoiceNumber)
-          .toString('base64');
+        invoice.pdfBase64 = (
+          await this.buildInvoicePdf(order, invoice.invoiceNumber)
+        ).toString('base64');
         invoice.pdfFileName =
           invoice.pdfFileName || this.buildInvoiceFileName(orderId);
         invoice.pdfUrl = `/orders/${orderId}/invoice/pdf`;
