@@ -8,11 +8,17 @@ export class Delivery {
   @Prop({ required: true, unique: true, trim: true })
   deliveryId!: string;
 
+  @Prop({ required: true, trim: true })
+  orderId!: string;
+
   @Prop({ required: true })
   customerId!: string;
 
   @Prop({ required: true })
   productId!: string;
+
+  @Prop({ required: true, trim: true })
+  productName!: string;
 
   @Prop({ required: true, min: 1 })
   quantity!: number;
@@ -22,6 +28,13 @@ export class Delivery {
 
   @Prop({ required: true, trim: true })
   deliveryAddress!: string;
+
+  @Prop({
+    type: String,
+    enum: ['processing', 'in-transit', 'delivered', 'cancelled', 'refunded'],
+    default: 'processing',
+  })
+  status!: 'processing' | 'in-transit' | 'delivered' | 'cancelled' | 'refunded';
 
   @Prop({ default: false })
   completed!: boolean;

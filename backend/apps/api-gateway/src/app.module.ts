@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { SERVICE_TOKENS } from '@app/common/constants/service-tokens';
 import { AppController } from './app.controller';
 
@@ -10,6 +11,7 @@ import { AppController } from './app.controller';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    JwtModule.register({}),
     ClientsModule.registerAsync([
       {
         name: SERVICE_TOKENS.LOGIN,

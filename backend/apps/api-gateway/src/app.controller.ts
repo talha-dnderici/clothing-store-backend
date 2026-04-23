@@ -1,8 +1,11 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
+  Headers,
   HttpCode,
   HttpException,
   HttpStatus,
@@ -11,8 +14,12 @@ import {
   Patch,
   Post,
   Query,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { ClientProxy } from '@nestjs/microservices';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 import { firstValueFrom } from 'rxjs';
 import { SERVICE_TOKENS } from '@app/common/constants/service-tokens';
 import { LoginDto } from '../../login-service/src/dto/login.dto';
@@ -32,6 +39,23 @@ import { RemoveCartItemDto } from '../../card-service/src/dto/remove-cart-item.d
 import { UpdateCartItemDto } from '../../card-service/src/dto/update-cart-item.dto';
 import { UpdateCardDto } from '../../card-service/src/dto/update-card.dto';
 
+class CheckoutRequestDto {
+  @IsOptional()
+  @IsString()
+  deliveryAddress?: string;
+}
+
+class UpdateOrderStatusRequestDto {
+  @IsIn(['processing', 'in-transit', 'delivered', 'cancelled', 'refunded'])
+  status!: 'processing' | 'in-transit' | 'delivered' | 'cancelled' | 'refunded';
+}
+
+type AuthenticatedUser = {
+  sub: string;
+  email: string;
+  role: 'customer' | 'salesManager' | 'productManager';
+};
+
 @Controller()
 export class AppController {
   constructor(
@@ -43,6 +67,8 @@ export class AppController {
     private readonly mainClient: ClientProxy,
     @Inject(SERVICE_TOKENS.CARD)
     private readonly cardClient: ClientProxy,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {}
 
   private async sendMessage<T>(
@@ -110,11 +136,44 @@ export class AppController {
       return HttpStatus.NOT_FOUND;
     }
 
-    if (normalizedMessage.includes('validation')) {
+    if (
+      normalizedMessage.includes('validation') ||
+      normalizedMessage.includes('required') ||
+      normalizedMessage.includes('empty') ||
+      normalizedMessage.includes('insufficient stock')
+    ) {
       return HttpStatus.BAD_REQUEST;
     }
 
     return HttpStatus.INTERNAL_SERVER_ERROR;
+  }
+
+  private getBearerToken(authorization?: string) {
+    const [scheme, token] = authorization?.split(' ') ?? [];
+
+    if (scheme?.toLowerCase() !== 'bearer' || !token) {
+      throw new UnauthorizedException('Authentication is required');
+    }
+
+    return token;
+  }
+
+  private async requireAuth(authorization?: string): Promise<AuthenticatedUser> {
+    const token = this.getBearerToken(authorization);
+
+    try {
+      return await this.jwtService.verifyAsync<AuthenticatedUser>(token, {
+        secret: this.configService.get<string>('JWT_SECRET', 'super-secret-key'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+  }
+
+  private requireProductManager(user: AuthenticatedUser) {
+    if (user.role !== 'productManager') {
+      throw new ForbiddenException('Product manager access is required');
+    }
   }
 
   @Get()
@@ -265,6 +324,95 @@ export class AppController {
   @Delete('cart/:userId')
   clearCart(@Param() params: CartUserDto) {
     return this.sendMessage(this.cardClient, 'card.clearCart', params);
+  }
+
+  @Post('orders/checkout')
+  @HttpCode(HttpStatus.CREATED)
+  async checkout(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: CheckoutRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const user = await this.sendMessage<{
+      id: string;
+      email: string;
+      address?: string;
+    }>(this.registerClient, 'register.findOneUser', authUser.sub);
+    const deliveryAddress = dto.deliveryAddress?.trim() || user.address?.trim();
+
+    if (!deliveryAddress) {
+      throw new BadRequestException('deliveryAddress is required');
+    }
+
+    return this.sendMessage(this.cardClient, 'card.checkout', {
+      userId: authUser.sub,
+      customerEmail: authUser.email,
+      deliveryAddress,
+    });
+  }
+
+  @Get('orders')
+  async findMyOrders(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    return this.sendMessage(this.cardClient, 'card.findOrdersForUser', {
+      userId: authUser.sub,
+    });
+  }
+
+  @Get('orders/:id')
+  async findOneOrder(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const order = await this.sendMessage<{ customerId: string }>(
+      this.cardClient,
+      'card.findOneOrder',
+      id,
+    );
+
+    if (order.customerId !== authUser.sub && authUser.role !== 'productManager') {
+      throw new ForbiddenException('You cannot view this order');
+    }
+
+    return order;
+  }
+
+  @Patch('orders/:id/status')
+  async updateOrderStatus(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderStatusRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.updateOrderStatus', {
+      orderId: id,
+      status: dto.status,
+    });
+  }
+
+  @Get('deliveries')
+  async findDeliveries(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.findDeliveries', {});
+  }
+
+  @Get('deliveries/my')
+  async findMyDeliveries(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    return this.sendMessage(this.cardClient, 'card.findDeliveriesForUser', {
+      userId: authUser.sub,
+    });
   }
 
   @Get('cards')

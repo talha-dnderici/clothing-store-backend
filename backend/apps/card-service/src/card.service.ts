@@ -8,11 +8,18 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { RpcException } from '@nestjs/microservices';
 import { Model } from 'mongoose';
+import {
+  Delivery,
+  DeliveryDocument,
+} from '@app/common/database/schemas/delivery.schema';
+import { Order, OrderDocument } from '@app/common/database/schemas/order.schema';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
+import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { RemoveCartItemDto } from './dto/remove-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
+import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Card, CardDocument } from './schemas/card.schema';
 import {
   Product,
@@ -26,6 +33,10 @@ export class CardService {
     private readonly cardModel: Model<CardDocument>,
     @InjectModel(Product.name)
     private readonly productModel: Model<ProductDocument>,
+    @InjectModel(Order.name)
+    private readonly orderModel: Model<OrderDocument>,
+    @InjectModel(Delivery.name)
+    private readonly deliveryModel: Model<DeliveryDocument>,
   ) {}
 
   private handleServiceError(error: unknown, fallbackMessage: string): never {
@@ -52,6 +63,22 @@ export class CardService {
     return {
       id: object._id.toString(),
       totalItems: object.items.reduce((sum, item) => sum + item.quantity, 0),
+      ...object,
+    };
+  }
+
+  private sanitizeOrder(order: OrderDocument) {
+    const object = order.toObject();
+    return {
+      id: object._id.toString(),
+      ...object,
+    };
+  }
+
+  private sanitizeDelivery(delivery: DeliveryDocument) {
+    const object = delivery.toObject();
+    return {
+      id: object._id.toString(),
       ...object,
     };
   }
@@ -359,6 +386,246 @@ export class CardService {
       return this.sanitizeCard(card);
     } catch (error) {
       this.handleServiceError(error, 'Cart could not be cleared');
+    }
+  }
+
+  async checkout(payload: CheckoutDto) {
+    const decrementedStock: Array<{ productId: string; quantity: number }> = [];
+    let createdOrder: OrderDocument | null = null;
+
+    try {
+      const userId = payload.userId.trim();
+      const deliveryAddress = payload.deliveryAddress.trim();
+
+      if (!userId) {
+        throw new BadRequestException('userId is required');
+      }
+
+      if (!deliveryAddress) {
+        throw new BadRequestException('deliveryAddress is required');
+      }
+
+      const card = await this.cardModel
+        .findOne({ userId, status: 'active' })
+        .exec();
+
+      if (!card || !card.items.length) {
+        throw new BadRequestException('Active cart is empty');
+      }
+
+      const requestedByProduct = new Map<string, number>();
+      for (const item of card.items) {
+        requestedByProduct.set(
+          item.productId,
+          (requestedByProduct.get(item.productId) ?? 0) + item.quantity,
+        );
+      }
+
+      const productIds = [...requestedByProduct.keys()];
+      const products = await this.productModel
+        .find({ _id: { $in: productIds } })
+        .exec();
+
+      if (products.length !== productIds.length) {
+        throw new NotFoundException('One or more products were not found');
+      }
+
+      const productMap = new Map(
+        products.map((product) => [product._id.toString(), product]),
+      );
+
+      for (const [productId, quantity] of requestedByProduct.entries()) {
+        const product = productMap.get(productId);
+
+        if (!product) {
+          throw new NotFoundException(`Product not found: ${productId}`);
+        }
+
+        if (product.stock < quantity) {
+          throw new BadRequestException(
+            `Insufficient stock for product ${productId}. Available stock: ${product.stock}`,
+          );
+        }
+      }
+
+      for (const [productId, quantity] of requestedByProduct.entries()) {
+        const result = await this.productModel
+          .updateOne(
+            { _id: productId, stock: { $gte: quantity } },
+            { $inc: { stock: -quantity } },
+          )
+          .exec();
+
+        if (result.modifiedCount !== 1) {
+          throw new BadRequestException(
+            `Insufficient stock for product ${productId}`,
+          );
+        }
+
+        decrementedStock.push({ productId, quantity });
+      }
+
+      const orderItems = card.items.map((item) => {
+        const product = productMap.get(item.productId);
+
+        if (!product) {
+          throw new NotFoundException(`Product not found: ${item.productId}`);
+        }
+
+        return {
+          productId: item.productId,
+          productName: product.name,
+          quantity: item.quantity,
+          unitPrice: product.price,
+          discountRate: product.discountRate ?? 0,
+        };
+      });
+
+      const totalPrice = orderItems.reduce((sum, item) => {
+        const discountMultiplier = 1 - item.discountRate / 100;
+        return sum + item.unitPrice * item.quantity * discountMultiplier;
+      }, 0);
+
+      createdOrder = await this.orderModel.create({
+        customerId: userId,
+        customerEmail: payload.customerEmail,
+        items: orderItems,
+        deliveryAddress,
+        status: 'processing',
+        totalPrice: Math.round(totalPrice * 100) / 100,
+        paymentConfirmed: true,
+      });
+
+      await this.deliveryModel.insertMany(
+        orderItems.map((item, index) => ({
+          deliveryId: `${createdOrder!._id.toString()}-${index + 1}`,
+          orderId: createdOrder!._id.toString(),
+          customerId: userId,
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          totalPrice:
+            Math.round(
+              item.unitPrice *
+                item.quantity *
+                (1 - item.discountRate / 100) *
+                100,
+            ) / 100,
+          deliveryAddress,
+          status: 'processing',
+          completed: false,
+        })),
+      );
+
+      card.status = 'ordered';
+      await card.save();
+
+      return {
+        order: this.sanitizeOrder(createdOrder),
+        deliveryStatus: 'processing',
+      };
+    } catch (error) {
+      await Promise.all(
+        decrementedStock.map((item) =>
+          this.productModel
+            .updateOne(
+              { _id: item.productId },
+              { $inc: { stock: item.quantity } },
+            )
+            .exec(),
+        ),
+      );
+
+      if (createdOrder) {
+        await this.deliveryModel
+          .deleteMany({ orderId: createdOrder._id.toString() })
+          .exec();
+        await this.orderModel.deleteOne({ _id: createdOrder._id }).exec();
+      }
+
+      this.handleServiceError(error, 'Checkout could not be completed');
+    }
+  }
+
+  async findOrdersForUser(userId: string) {
+    try {
+      const orders = await this.orderModel
+        .find({ customerId: userId.trim() })
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return orders.map((order) => this.sanitizeOrder(order));
+    } catch (error) {
+      this.handleServiceError(error, 'Orders could not be listed');
+    }
+  }
+
+  async findOneOrder(id: string) {
+    try {
+      const order = await this.orderModel.findById(id).exec();
+
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+
+      return this.sanitizeOrder(order);
+    } catch (error) {
+      this.handleServiceError(error, 'Order could not be fetched');
+    }
+  }
+
+  async updateOrderStatus(payload: UpdateOrderStatusDto) {
+    try {
+      const completed = payload.status === 'delivered';
+      const order = await this.orderModel
+        .findByIdAndUpdate(
+          payload.orderId,
+          { status: payload.status },
+          { new: true, runValidators: true },
+        )
+        .exec();
+
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+
+      await this.deliveryModel
+        .updateMany(
+          { orderId: payload.orderId },
+          { status: payload.status, completed },
+          { runValidators: true },
+        )
+        .exec();
+
+      return this.sanitizeOrder(order);
+    } catch (error) {
+      this.handleServiceError(error, 'Order status could not be updated');
+    }
+  }
+
+  async findDeliveries() {
+    try {
+      const deliveries = await this.deliveryModel
+        .find()
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return deliveries.map((delivery) => this.sanitizeDelivery(delivery));
+    } catch (error) {
+      this.handleServiceError(error, 'Deliveries could not be listed');
+    }
+  }
+
+  async findDeliveriesForUser(userId: string) {
+    try {
+      const deliveries = await this.deliveryModel
+        .find({ customerId: userId.trim() })
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return deliveries.map((delivery) => this.sanitizeDelivery(delivery));
+    } catch (error) {
+      this.handleServiceError(error, 'Deliveries could not be listed');
     }
   }
 
