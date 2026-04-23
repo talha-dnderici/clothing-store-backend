@@ -169,15 +169,43 @@ export class CardService {
     }
   }
 
-  private async buildInvoicePdf(order: OrderDocument, invoiceNumber: string) {
+  private async buildInvoicePdf(
+    order: OrderDocument,
+    invoiceNumber: string,
+    recipientEmail = this.getInvoiceRecipient(order.customerEmail),
+  ) {
     const createdAt =
       (order as unknown as { createdAt?: Date }).createdAt ?? new Date();
     const subtotal = order.items.reduce(
       (sum, item) => sum + item.unitPrice * item.quantity,
       0,
     );
-    const discountValue = subtotal - order.totalPrice;
+    const discountValue = Math.max(0, subtotal - order.totalPrice);
     const primaryImage = await this.loadPrimaryProductVisual(order);
+    const orderId = order._id.toString();
+    const billedTo = recipientEmail.trim() || order.customerEmail;
+    const shippingAddress =
+      order.deliveryAddress.trim() || 'No delivery address provided';
+    const notesText =
+      'Thank you for shopping with AURA. Keep this invoice for returns, delivery follow-up, and warranty questions. If you need help, contact our support team with your invoice number.';
+    const paymentRows = [
+      {
+        label: 'Payment status',
+        value: order.paymentConfirmed ? 'Paid in full' : 'Awaiting confirmation',
+      },
+      {
+        label: 'Payment method',
+        value: 'Secure checkout',
+      },
+      {
+        label: 'Delivery status',
+        value: order.status.replace(/-/g, ' '),
+      },
+      {
+        label: 'Order reference',
+        value: orderId,
+      },
+    ];
 
     return await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({
@@ -194,138 +222,409 @@ export class CardService {
       const left = doc.page.margins.left;
       const right = doc.page.width - doc.page.margins.right;
       const contentWidth = right - left;
-      const heroY = 126;
-      const heroHeight = 176;
+      const sectionGap = 18;
+      const cardGap = 12;
+      const cardPadding = 16;
+      const footerHeight = 62;
+      const pageTopY = 126;
       const heroWidth = 178;
       const heroX = right - heroWidth;
       const contentX = left;
-      const mainWidth = contentWidth - heroWidth - 24;
-      let cursorY = 0;
+      const leftColumnWidth = contentWidth - heroWidth - 24;
+      const pageBottomLimit = () => doc.page.height - footerHeight - 18;
+      const normalizeText = (value: string, fallback = '-') => {
+        const text = value.trim();
+        return text.length ? text : fallback;
+      };
+      const drawChrome = (showMeta: boolean) => {
+        doc.save();
+        doc.rect(0, 0, doc.page.width, 112).fill('#111827');
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(28).text('AURA', left, 34);
+        doc.font('Helvetica').fontSize(11).fillColor('#d1d5db');
+        doc.text('Clothing Store', left, 66);
+        doc.text(this.invoiceSiteName, left, 82);
+
+        doc.roundedRect(right - 164, 26, 164, 70, 14).fill('#1f2937');
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11);
+        doc.text(showMeta ? 'TAX INVOICE' : 'INVOICE', right - 146, 40);
+        doc.fontSize(20).text(invoiceNumber, right - 146, 56, {
+          width: 132,
+        });
+        doc.fillColor('#cbd5e1').font('Helvetica').fontSize(9);
+        doc.text(`Generated ${this.formatInvoiceDate(createdAt)}`, right - 146, 82, {
+          width: 132,
+        });
+
+        doc.rect(0, doc.page.height - footerHeight, doc.page.width, footerHeight).fill('#111827');
+        doc.fillColor('#d1d5db').font('Helvetica').fontSize(9);
+        doc.text(
+          `AURA Clothing  •  ${this.invoiceSiteName}  •  ${this.invoiceSupportEmail}`,
+          left,
+          doc.page.height - 40,
+          { width: contentWidth, align: 'center' },
+        );
+        doc.text(
+          'This document confirms payment and delivery details for the order above.',
+          left,
+          doc.page.height - 26,
+          { width: contentWidth, align: 'center' },
+        );
+        doc.restore();
+        doc.y = pageTopY;
+      };
+      const ensureSpace = (currentY: number, height: number) => {
+        if (currentY + height <= pageBottomLimit()) {
+          return false;
+        }
+
+        doc.addPage();
+        drawChrome(false);
+        return true;
+      };
+      const measureInfoCardHeight = (
+        title: string,
+        body: string,
+        footerText = '',
+        minHeight = 0,
+      ) => {
+        const innerWidth = leftColumnWidth - cardPadding * 2;
+        doc.font('Helvetica-Bold').fontSize(11);
+        const titleHeight = doc.heightOfString(title, { width: innerWidth });
+        doc.font('Helvetica').fontSize(12);
+        const bodyHeight = doc.heightOfString(body, {
+          width: innerWidth,
+          lineGap: 3,
+        });
+
+        let footerCardHeight = 0;
+        if (footerText) {
+          doc.font('Helvetica').fontSize(10);
+          footerCardHeight = doc.heightOfString(footerText, {
+            width: innerWidth,
+            lineGap: 2,
+          });
+        }
+
+        return Math.max(
+          minHeight,
+          cardPadding * 2 +
+            titleHeight +
+            10 +
+            bodyHeight +
+            (footerText ? footerCardHeight + 12 : 0),
+        );
+      };
+      const drawInfoCard = (
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        title: string,
+        body: string,
+        footerText = '',
+      ) => {
+        const innerWidth = width - cardPadding * 2;
+        let textY = y + cardPadding;
+
+        doc.roundedRect(x, y, width, height, 16).fill('#f8fafc');
+        doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11);
+        doc.text(title, x + cardPadding, textY, { width: innerWidth });
+        textY += doc.heightOfString(title, { width: innerWidth }) + 10;
+
+        doc.fillColor('#111827').font('Helvetica').fontSize(12);
+        doc.text(body, x + cardPadding, textY, {
+          width: innerWidth,
+          lineGap: 3,
+        });
+
+        if (footerText) {
+          textY +=
+            doc.heightOfString(body, {
+              width: innerWidth,
+              lineGap: 3,
+            }) + 12;
+          doc.fillColor('#64748b').font('Helvetica').fontSize(10);
+          doc.text(footerText, x + cardPadding, textY, {
+            width: innerWidth,
+            lineGap: 2,
+          });
+        }
+      };
+      const measurePaymentCardHeight = () => {
+        const innerWidth = leftColumnWidth - cardPadding * 2;
+        let height = cardPadding * 2 + 20;
+
+        paymentRows.forEach((row, index) => {
+          doc.font('Helvetica').fontSize(10);
+          const labelHeight = doc.heightOfString(row.label, { width: innerWidth });
+          doc.font('Helvetica-Bold').fontSize(11);
+          const valueHeight = doc.heightOfString(row.value, {
+            width: innerWidth,
+            lineGap: 2,
+          });
+          height += labelHeight + valueHeight + 12;
+
+          if (index < paymentRows.length - 1) {
+            height += 10;
+          }
+        });
+
+        return height;
+      };
+      const drawPaymentCard = (x: number, y: number, width: number, height: number) => {
+        const innerWidth = width - cardPadding * 2;
+        let rowY = y + cardPadding;
+
+        doc.roundedRect(x, y, width, height, 16).fill('#f8fafc');
+        doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11);
+        doc.text('Payment Details', x + cardPadding, rowY, { width: innerWidth });
+        rowY += 24;
+
+        paymentRows.forEach((row, index) => {
+          doc.fillColor('#64748b').font('Helvetica').fontSize(10);
+          doc.text(row.label, x + cardPadding, rowY, { width: innerWidth });
+          rowY += doc.heightOfString(row.label, { width: innerWidth }) + 2;
+
+          doc.fillColor('#111827').font('Helvetica-Bold').fontSize(11);
+          doc.text(row.value, x + cardPadding, rowY, {
+            width: innerWidth,
+            lineGap: 2,
+          });
+          rowY +=
+            doc.heightOfString(row.value, {
+              width: innerWidth,
+              lineGap: 2,
+            }) + 10;
+
+          if (index < paymentRows.length - 1) {
+            doc
+              .moveTo(x + cardPadding, rowY)
+              .lineTo(x + width - cardPadding, rowY)
+              .strokeColor('#e2e8f0')
+              .stroke();
+            rowY += 10;
+          }
+        });
+      };
+      const drawHeroCard = (x: number, y: number, width: number, height: number) => {
+        const innerWidth = width - cardPadding * 2;
+        const labelY = y + 16;
+        const imageY = y + 40;
+        const captionHeight = 50;
+        const imageHeight = Math.max(72, height - 76 - captionHeight);
+
+        doc.roundedRect(x, y, width, height, 18).fill('#f4f4f5');
+        doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(10);
+        doc.text('Featured Item', x + cardPadding, labelY, {
+          width: innerWidth,
+          align: 'center',
+        });
+
+        if (primaryImage) {
+          try {
+            doc.image(primaryImage, x + 12, imageY, {
+              fit: [width - 24, imageHeight],
+              align: 'center',
+              valign: 'center',
+            });
+          } catch {
+            doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(16);
+            doc.text(order.items[0]?.productName ?? 'AURA Product', x + 18, imageY + 24, {
+              width: width - 36,
+              align: 'center',
+            });
+          }
+        } else {
+          doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(16);
+          doc.text(order.items[0]?.productName ?? 'AURA Product', x + 18, imageY + 22, {
+            width: width - 36,
+            align: 'center',
+          });
+          doc.font('Helvetica').fontSize(10).fillColor('#94a3b8');
+          doc.text('Visual preview unavailable', x + 18, imageY + 68, {
+            width: width - 36,
+            align: 'center',
+          });
+        }
+
+        const captionY = y + height - captionHeight;
+        doc.fillColor('#111827').font('Helvetica-Bold').fontSize(11);
+        doc.text(order.items[0]?.productName ?? 'AURA Product', x + 16, captionY, {
+          width: width - 32,
+          align: 'center',
+        });
+        doc.font('Helvetica').fontSize(9).fillColor('#64748b');
+        doc.text(`${order.items.length} item(s) in this order`, x + 16, captionY + 18, {
+          width: width - 32,
+          align: 'center',
+        });
+      };
+      const drawTableHeader = (y: number) => {
+        const columns = {
+          item: contentX + 16,
+          qty: contentX + 308,
+          unit: contentX + 360,
+          discount: contentX + 432,
+          total: contentX + 500,
+        };
+
+        doc.roundedRect(contentX, y, contentWidth, 28, 10).fill('#111827');
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9);
+        doc.text('ITEM', columns.item, y + 9);
+        doc.text('QTY', columns.qty, y + 9);
+        doc.text('UNIT', columns.unit, y + 9);
+        doc.text('DISC', columns.discount, y + 9);
+        doc.text('TOTAL', columns.total, y + 9);
+
+        return {
+          columns,
+          nextY: y + 28,
+        };
+      };
 
       doc.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      doc.rect(0, 0, doc.page.width, 112).fill('#111827');
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(28).text('AURA', left, 34);
-      doc.font('Helvetica').fontSize(11).fillColor('#d1d5db');
-      doc.text('Clothing Store', left, 66);
-      doc.text(this.invoiceSiteName, left, 82);
+      drawChrome(true);
 
-      doc.roundedRect(right - 164, 26, 164, 70, 14).fill('#1f2937');
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11);
-      doc.text('TAX INVOICE', right - 146, 40);
-      doc.fontSize(20).text(invoiceNumber, right - 146, 56, {
-        width: 132,
-      });
-      doc.fillColor('#cbd5e1').font('Helvetica').fontSize(9);
-      doc.text(`Generated ${this.formatInvoiceDate(createdAt)}`, right - 146, 82, {
-        width: 132,
-      });
+      const billHeight = measureInfoCardHeight(
+        'Bill To',
+        normalizeText(billedTo),
+        billedTo === order.customerEmail ? 'Invoice recipient' : 'Invoice recipient override',
+        92,
+      );
+      const shipHeight = measureInfoCardHeight(
+        'Ship To',
+        normalizeText(shippingAddress),
+        'Delivery address',
+        116,
+      );
+      const paymentHeight = measurePaymentCardHeight();
+      const topSectionHeight = Math.max(
+        212,
+        billHeight + shipHeight + paymentHeight + cardGap * 2,
+      );
 
-      doc.roundedRect(heroX, heroY, heroWidth, heroHeight, 18).fill('#f4f4f5');
-      if (primaryImage) {
-        try {
-          doc.image(primaryImage, heroX + 12, heroY + 12, {
-            fit: [heroWidth - 24, heroHeight - 24],
-            align: 'center',
-            valign: 'center',
-          });
-        } catch {
-          doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(16);
-          doc.text(order.items[0]?.productName ?? 'AURA Product', heroX + 18, heroY + 56, {
-            width: heroWidth - 36,
-            align: 'center',
-          });
-        }
-      } else {
-        doc.fillColor('#64748b').font('Helvetica-Bold').fontSize(16);
-        doc.text(order.items[0]?.productName ?? 'AURA Product', heroX + 18, heroY + 52, {
-          width: heroWidth - 36,
-          align: 'center',
-        });
-        doc.font('Helvetica').fontSize(10).fillColor('#94a3b8');
-        doc.text('Visual preview unavailable', heroX + 18, heroY + 98, {
-          width: heroWidth - 36,
-          align: 'center',
-        });
-      }
+      drawInfoCard(
+        contentX,
+        pageTopY,
+        leftColumnWidth,
+        billHeight,
+        'Bill To',
+        normalizeText(billedTo),
+        billedTo === order.customerEmail ? 'Invoice recipient' : 'Invoice recipient override',
+      );
+      drawInfoCard(
+        contentX,
+        pageTopY + billHeight + cardGap,
+        leftColumnWidth,
+        shipHeight,
+        'Ship To',
+        normalizeText(shippingAddress),
+        'Delivery address',
+      );
+      drawPaymentCard(
+        contentX,
+        pageTopY + billHeight + shipHeight + cardGap * 2,
+        leftColumnWidth,
+        paymentHeight,
+      );
+      drawHeroCard(heroX, pageTopY, heroWidth, topSectionHeight);
 
-      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11);
-      doc.text('Bill To', contentX, heroY);
-      doc.font('Helvetica').fontSize(12).fillColor('#111827');
-      doc.text(order.customerEmail, contentX, heroY + 20, { width: mainWidth / 2 - 8 });
-      doc.fontSize(10).fillColor('#475569');
-      doc.text('Customer account', contentX, heroY + 40, { width: mainWidth / 2 - 8 });
-
-      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11);
-      doc.text('Ship To', contentX + mainWidth / 2 + 8, heroY);
-      doc.font('Helvetica').fontSize(12).fillColor('#111827');
-      doc.text(order.deliveryAddress, contentX + mainWidth / 2 + 8, heroY + 20, {
-        width: mainWidth / 2 - 8,
-      });
-
-      doc.roundedRect(contentX, heroY + 80, mainWidth, 84, 16).fill('#f8fafc');
-      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(11);
-      doc.text('Payment Details', contentX + 18, heroY + 96);
-      doc.font('Helvetica').fontSize(10).fillColor('#475569');
-      doc.text('Status', contentX + 18, heroY + 118);
-      doc.text('Method', contentX + 160, heroY + 118);
-      doc.text('Order', contentX + 318, heroY + 118);
-      doc.fillColor('#111827').font('Helvetica-Bold').fontSize(12);
-      doc.text(order.paymentConfirmed ? 'Paid' : 'Pending', contentX + 18, heroY + 134);
-      doc.text('Secure checkout', contentX + 160, heroY + 134);
-      doc.text(order._id.toString(), contentX + 318, heroY + 134, { width: 176 });
-
-      cursorY = heroY + heroHeight + 28;
+      let cursorY = pageTopY + topSectionHeight + 24;
       doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(13);
       doc.text('Order Summary', contentX, cursorY);
       cursorY += 20;
 
-      const columns = {
-        item: contentX + 16,
-        qty: contentX + 310,
-        unit: contentX + 362,
-        discount: contentX + 436,
-        total: contentX + 506,
-      };
-
-      doc.roundedRect(contentX, cursorY, contentWidth, 28, 10).fill('#111827');
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9);
-      doc.text('ITEM', columns.item, cursorY + 9);
-      doc.text('QTY', columns.qty, cursorY + 9);
-      doc.text('UNIT', columns.unit, cursorY + 9);
-      doc.text('DISC', columns.discount, cursorY + 9);
-      doc.text('TOTAL', columns.total, cursorY + 9);
-      cursorY += 28;
+      let tableHeader = drawTableHeader(cursorY);
+      let columns = tableHeader.columns;
+      cursorY = tableHeader.nextY;
 
       order.items.forEach((item, index) => {
-        const rowHeight = 48;
+        doc.font('Helvetica-Bold').fontSize(11);
+        const itemHeight = doc.heightOfString(item.productName, {
+          width: 270,
+          lineGap: 2,
+        });
+        doc.font('Helvetica').fontSize(9);
+        const skuHeight = doc.heightOfString(
+          `SKU ${item.productId.slice(-8).toUpperCase()}`,
+          {
+            width: 270,
+          },
+        );
+        const rowHeight = Math.max(52, 18 + itemHeight + skuHeight);
         const fill = index % 2 === 0 ? '#f8fafc' : '#ffffff';
         const lineTotal =
           Math.round(
             item.unitPrice * item.quantity * (1 - item.discountRate / 100) * 100,
           ) / 100;
 
+        if (ensureSpace(cursorY, rowHeight + 24)) {
+          cursorY = doc.y;
+          doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(13);
+          doc.text('Order Summary', contentX, cursorY);
+          cursorY += 20;
+          tableHeader = drawTableHeader(cursorY);
+          columns = tableHeader.columns;
+          cursorY = tableHeader.nextY;
+        }
+
+        const rowTextY = cursorY + Math.max(10, (rowHeight - 16) / 2 - 4);
         doc.rect(contentX, cursorY, contentWidth, rowHeight).fill(fill);
         doc.fillColor('#111827').font('Helvetica-Bold').fontSize(11);
         doc.text(item.productName, columns.item, cursorY + 11, {
           width: 270,
+          lineGap: 2,
         });
         doc.font('Helvetica').fontSize(9).fillColor('#64748b');
-        doc.text(`SKU ${item.productId.slice(-8).toUpperCase()}`, columns.item, cursorY + 28);
+        doc.text(
+          `SKU ${item.productId.slice(-8).toUpperCase()}`,
+          columns.item,
+          cursorY + 16 + itemHeight,
+          {
+            width: 270,
+          },
+        );
         doc.fillColor('#111827').font('Helvetica').fontSize(10);
-        doc.text(String(item.quantity), columns.qty, cursorY + 18);
-        doc.text(this.formatMoney(item.unitPrice), columns.unit, cursorY + 18);
-        doc.text(`${item.discountRate}%`, columns.discount, cursorY + 18);
-        doc.font('Helvetica-Bold').text(this.formatMoney(lineTotal), columns.total, cursorY + 18);
+        doc.text(String(item.quantity), columns.qty, rowTextY);
+        doc.text(this.formatMoney(item.unitPrice), columns.unit, rowTextY);
+        doc.text(`${item.discountRate}%`, columns.discount, rowTextY);
+        doc.font('Helvetica-Bold').text(this.formatMoney(lineTotal), columns.total, rowTextY);
         cursorY += rowHeight;
       });
 
       cursorY += 20;
       const summaryWidth = 210;
+      const notesWidth = contentWidth - summaryWidth - sectionGap;
       const summaryX = right - summaryWidth;
-      doc.roundedRect(summaryX, cursorY, summaryWidth, 112, 16).fill('#f8fafc');
+      doc.font('Helvetica').fontSize(10);
+      const notesHeight = Math.max(
+        118,
+        48 +
+          doc.heightOfString(notesText, {
+            width: notesWidth - cardPadding * 2,
+            lineGap: 4,
+          }),
+      );
+      const summaryHeight = 118;
+      const detailBlockHeight = Math.max(notesHeight, summaryHeight);
+
+      if (ensureSpace(cursorY, detailBlockHeight + 12)) {
+        cursorY = doc.y;
+      }
+
+      doc.roundedRect(contentX, cursorY, notesWidth, notesHeight, 16).fill('#f8fafc');
+      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(12);
+      doc.text('Notes', contentX + 16, cursorY + 16);
+      doc.font('Helvetica').fontSize(10).fillColor('#475569');
+      doc.text(notesText, contentX + 16, cursorY + 40, {
+        width: notesWidth - 32,
+        lineGap: 4,
+      });
+
+      doc.roundedRect(summaryX, cursorY, summaryWidth, summaryHeight, 16).fill('#f8fafc');
       doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(12);
       doc.text('Payment Summary', summaryX + 16, cursorY + 16);
       doc.font('Helvetica').fontSize(10).fillColor('#475569');
@@ -339,38 +638,17 @@ export class CardService {
         width: 78,
         align: 'right',
       });
-      doc.moveTo(summaryX + 16, cursorY + 84).lineTo(summaryX + summaryWidth - 16, cursorY + 84).strokeColor('#cbd5e1').stroke();
+      doc
+        .moveTo(summaryX + 16, cursorY + 84)
+        .lineTo(summaryX + summaryWidth - 16, cursorY + 84)
+        .strokeColor('#cbd5e1')
+        .stroke();
       doc.fillColor('#111827').font('Helvetica-Bold').fontSize(13);
       doc.text('Grand Total', summaryX + 16, cursorY + 92);
       doc.text(this.formatMoney(order.totalPrice), summaryX + 108, cursorY + 92, {
         width: 86,
         align: 'right',
       });
-
-      doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(12);
-      doc.text('Notes', contentX, cursorY + 8);
-      doc.font('Helvetica').fontSize(10).fillColor('#475569');
-      doc.text(
-        'Thank you for shopping with AURA. Keep this invoice for returns, delivery follow-up, and warranty questions. If you need help, contact our support team with your invoice number.',
-        contentX,
-        cursorY + 30,
-        { width: contentWidth - summaryWidth - 26, lineGap: 4 },
-      );
-
-      doc.rect(0, doc.page.height - 62, doc.page.width, 62).fill('#111827');
-      doc.fillColor('#d1d5db').font('Helvetica').fontSize(9);
-      doc.text(
-        `AURA Clothing  •  ${this.invoiceSiteName}  •  ${this.invoiceSupportEmail}`,
-        left,
-        doc.page.height - 40,
-        { width: contentWidth, align: 'center' },
-      );
-      doc.text(
-        'This document confirms payment and delivery details for the order above.',
-        left,
-        doc.page.height - 26,
-        { width: contentWidth, align: 'center' },
-      );
 
       doc.end();
     });
@@ -627,7 +905,8 @@ export class CardService {
     }
 
     try {
-      const to = this.getInvoiceRecipient(invoice.customerEmail);
+      const to = this.getInvoiceRecipient(order.customerEmail);
+      invoice.recipientEmail = to;
       await this.sendSmtpMail(
         to,
         this.composeInvoiceEmail(invoice, order, to),
@@ -793,9 +1072,10 @@ export class CardService {
     const orderId = order._id.toString();
     const invoiceNumber = this.buildInvoiceNumber(orderId);
     const pdfFileName = this.buildInvoiceFileName(orderId);
-    const pdfBase64 = (await this.buildInvoicePdf(order, invoiceNumber)).toString(
-      'base64',
-    );
+    const recipientEmail = this.getInvoiceRecipient(order.customerEmail);
+    const pdfBase64 = (
+      await this.buildInvoicePdf(order, invoiceNumber, recipientEmail)
+    ).toString('base64');
     const invoice = await this.invoiceModel
       .findOneAndUpdate(
         { orderId },
@@ -805,6 +1085,7 @@ export class CardService {
             pdfUrl: `/orders/${orderId}/invoice/pdf`,
             pdfBase64,
             pdfFileName,
+            recipientEmail,
           },
           $setOnInsert: {
             invoiceNumber,
@@ -1321,13 +1602,17 @@ export class CardService {
         (await this.invoiceModel.findOne({ orderId }).exec()) ??
         (await this.createInvoiceForOrder(order, false));
 
-      if (!invoice.pdfBase64) {
+      const recipientEmail =
+        invoice.recipientEmail || this.getInvoiceRecipient(order.customerEmail);
+
+      if (!invoice.pdfBase64 || !invoice.recipientEmail) {
         invoice.pdfBase64 = (
-          await this.buildInvoicePdf(order, invoice.invoiceNumber)
+          await this.buildInvoicePdf(order, invoice.invoiceNumber, recipientEmail)
         ).toString('base64');
         invoice.pdfFileName =
           invoice.pdfFileName || this.buildInvoiceFileName(orderId);
         invoice.pdfUrl = `/orders/${orderId}/invoice/pdf`;
+        invoice.recipientEmail = recipientEmail;
         await invoice.save();
       }
 
@@ -1353,13 +1638,16 @@ export class CardService {
         (await this.invoiceModel.findOne({ orderId }).exec()) ??
         (await this.createInvoiceForOrder(order, false));
 
-      if (!invoice.pdfBase64) {
+      const recipientEmail = this.getInvoiceRecipient(order.customerEmail);
+
+      if (!invoice.pdfBase64 || invoice.recipientEmail !== recipientEmail) {
         invoice.pdfBase64 = (
-          await this.buildInvoicePdf(order, invoice.invoiceNumber)
+          await this.buildInvoicePdf(order, invoice.invoiceNumber, recipientEmail)
         ).toString('base64');
         invoice.pdfFileName =
           invoice.pdfFileName || this.buildInvoiceFileName(orderId);
         invoice.pdfUrl = `/orders/${orderId}/invoice/pdf`;
+        invoice.recipientEmail = recipientEmail;
       }
 
       const emailedInvoice = await this.sendInvoiceEmail(invoice, order, false);

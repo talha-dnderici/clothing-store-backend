@@ -17,6 +17,9 @@ export class Invoice {
   @Prop({ required: true, lowercase: true, trim: true })
   customerEmail!: string;
 
+  @Prop({ default: '', lowercase: true, trim: true })
+  recipientEmail!: string;
+
   @Prop({ required: true, min: 0 })
   totalAmount!: number;
 
