@@ -1074,9 +1074,15 @@ export function EndpointTester() {
         label: 'Email invoice',
         run: async () => {
           const customer = await ensureSeedUser('customer');
-          return apiRequest('POST', `/orders/${await ensureOrder()}/invoice/email`, {
+          const response = await apiRequest<any>('POST', `/orders/${await ensureOrder()}/invoice/email`, {
             token: customer.token,
           });
+
+          if (response.data?.emailStatus !== 'sent') {
+            throw new Error(response.data?.emailError || 'Invoice email was not sent');
+          }
+
+          return response;
         },
       },
       {

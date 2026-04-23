@@ -1119,6 +1119,13 @@ export class CardService {
       }
 
       const emailedInvoice = await this.sendInvoiceEmail(invoice, order, true);
+
+      if (emailedInvoice.emailStatus !== 'sent') {
+        throw new InternalServerErrorException(
+          emailedInvoice.emailError || 'Invoice email failed',
+        );
+      }
+
       return this.sanitizeInvoice(emailedInvoice);
     } catch (error) {
       this.handleServiceError(error, 'Invoice email could not be sent');
