@@ -8,11 +8,19 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, SortOrder } from 'mongoose';
+import {
+  Comment,
+  CommentDocument,
+} from '@app/common/database/schemas/comment.schema';
 import { CreateCategoryDto } from './dto/create-category.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateProductDto } from './dto/create-product.dto';
+import { CreateRatingDto } from './dto/create-rating.dto';
 import { ListProductsDto } from './dto/list-products.dto';
+import { ReviewCommentDto } from './dto/review-comment.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { UpdateProductPricingDto } from './dto/update-product-pricing.dto';
 import { Category, CategoryDocument } from './schemas/category.schema';
 import { Product, ProductDocument } from './schemas/product.schema';
 
@@ -23,6 +31,8 @@ export class MainService {
     private readonly productModel: Model<ProductDocument>,
     @InjectModel(Category.name)
     private readonly categoryModel: Model<CategoryDocument>,
+    @InjectModel(Comment.name)
+    private readonly commentModel: Model<CommentDocument>,
   ) {}
 
   private handleServiceError(error: unknown, fallbackMessage: string): never {
@@ -35,10 +45,19 @@ export class MainService {
 
   private sanitizeProduct(product: ProductDocument) {
     const object = product.toObject();
+    const activeDiscountRate = object.discountActive
+      ? (object.discountRate ?? 0)
+      : 0;
+    const effectivePrice =
+      Math.round(object.price * (1 - activeDiscountRate / 100) * 100) / 100;
+
     return {
       id: object._id.toString(),
       categoryId: object.categoryIds[0] ?? null,
       ...object,
+      discountRate: object.discountRate ?? 0,
+      discountActive: Boolean(object.discountActive),
+      effectivePrice,
     };
   }
 
@@ -48,6 +67,78 @@ export class MainService {
       id: object._id.toString(),
       ...object,
     };
+  }
+
+  private sanitizeComment(comment: CommentDocument) {
+    const object = comment.toObject();
+    return {
+      id: object._id.toString(),
+      ...object,
+    };
+  }
+
+  private async attachRatingMetadata<T extends { id?: string; _id?: unknown }>(
+    products: T[],
+  ) {
+    const productIds = products
+      .map((product) => product.id ?? product._id?.toString())
+      .filter((id): id is string => Boolean(id));
+
+    if (!productIds.length) {
+      return products.map((product) => ({
+        ...product,
+        rating: 0,
+        ratingAverage: 0,
+        ratingCount: 0,
+      }));
+    }
+
+    const ratingSummaries = await this.commentModel
+      .aggregate<{
+        _id: string;
+        ratingAverage: number;
+        ratingCount: number;
+      }>([
+        {
+          $match: {
+            productId: { $in: productIds },
+            rating: { $gte: 1, $lte: 5 },
+          },
+        },
+        {
+          $group: {
+            _id: '$productId',
+            ratingAverage: { $avg: '$rating' },
+            ratingCount: { $sum: 1 },
+          },
+        },
+      ])
+      .exec();
+
+    const ratingMap = new Map(
+      ratingSummaries.map((summary) => [
+        summary._id,
+        {
+          ratingAverage: Math.round(summary.ratingAverage * 10) / 10,
+          ratingCount: summary.ratingCount,
+        },
+      ]),
+    );
+
+    return products.map((product) => {
+      const productId = product.id ?? product._id?.toString() ?? '';
+      const summary = ratingMap.get(productId) ?? {
+        ratingAverage: 0,
+        ratingCount: 0,
+      };
+
+      return {
+        ...product,
+        rating: summary.ratingAverage,
+        ratingAverage: summary.ratingAverage,
+        ratingCount: summary.ratingCount,
+      };
+    });
   }
 
   private async attachCategoryMetadata<T extends { categoryIds?: string[] }>(
@@ -122,6 +213,14 @@ export class MainService {
     }
 
     return category;
+  }
+
+  private async ensureProductExists(id: string) {
+    const product = await this.productModel.findById(id).select('_id').lean().exec();
+
+    if (!product) {
+      throw new NotFoundException(`Product not found: ${id}`);
+    }
   }
 
   private async findCategoryIdByFilter(categoryFilter: string) {
@@ -278,7 +377,8 @@ export class MainService {
       ]);
 
       const sanitizedProducts = products.map((product) => this.sanitizeProduct(product));
-      const hydratedProducts = await this.attachCategoryMetadata(sanitizedProducts);
+      const categorizedProducts = await this.attachCategoryMetadata(sanitizedProducts);
+      const hydratedProducts = await this.attachRatingMetadata(categorizedProducts);
 
       return {
         items: hydratedProducts,
@@ -302,10 +402,180 @@ export class MainService {
       const [hydratedProduct] = await this.attachCategoryMetadata([
         this.sanitizeProduct(product),
       ]);
+      const [ratedProduct] = await this.attachRatingMetadata([hydratedProduct]);
 
-      return hydratedProduct;
+      return ratedProduct;
     } catch (error) {
       this.handleServiceError(error, 'Product could not be fetched');
+    }
+  }
+
+  async createComment(payload: CreateCommentDto) {
+    try {
+      const content = payload.content.trim();
+
+      if (!content) {
+        throw new BadRequestException('Comment content is required');
+      }
+
+      await this.ensureProductExists(payload.productId);
+
+      const comment = await this.commentModel.create({
+        productId: payload.productId,
+        customerId: payload.customerId.trim(),
+        customerName: payload.customerName.trim(),
+        content,
+        rating: payload.rating,
+        approvalStatus: 'pending',
+      });
+
+      return {
+        ...this.sanitizeComment(comment),
+        ratingPublished: payload.rating !== undefined,
+        commentStatus: 'pending',
+      };
+    } catch (error) {
+      this.handleServiceError(error, 'Comment could not be submitted');
+    }
+  }
+
+  async createRating(payload: CreateRatingDto) {
+    try {
+      await this.ensureProductExists(payload.productId);
+
+      const content = payload.content?.trim() ?? '';
+      const rating = await this.commentModel.create({
+        productId: payload.productId,
+        customerId: payload.customerId.trim(),
+        customerName: payload.customerName.trim(),
+        content,
+        rating: payload.rating,
+        approvalStatus: content ? 'pending' : 'approved',
+      });
+
+      return {
+        ...this.sanitizeComment(rating),
+        ratingPublished: true,
+        commentStatus: content ? 'pending' : 'approved',
+      };
+    } catch (error) {
+      this.handleServiceError(error, 'Rating could not be submitted');
+    }
+  }
+
+  async findPublicComments(productId: string) {
+    try {
+      await this.ensureProductExists(productId);
+
+      const comments = await this.commentModel
+        .find({
+          productId,
+          approvalStatus: 'approved',
+          content: { $ne: '' },
+        })
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return comments.map((comment) => this.sanitizeComment(comment));
+    } catch (error) {
+      this.handleServiceError(error, 'Comments could not be listed');
+    }
+  }
+
+  async findProductRatings(productId: string) {
+    try {
+      await this.ensureProductExists(productId);
+
+      const ratings = await this.commentModel
+        .find({
+          productId,
+          rating: { $gte: 1, $lte: 5 },
+        })
+        .sort({ createdAt: -1 })
+        .exec();
+      const ratingValues = ratings
+        .map((rating) => rating.rating)
+        .filter((rating): rating is number => typeof rating === 'number');
+      const ratingAverage = ratingValues.length
+        ? Math.round(
+            (ratingValues.reduce((sum, rating) => sum + rating, 0) /
+              ratingValues.length) *
+              10,
+          ) / 10
+        : 0;
+
+      return {
+        productId,
+        ratingAverage,
+        ratingCount: ratingValues.length,
+        ratings: ratings.map((rating) => {
+          const sanitized = this.sanitizeComment(rating);
+          const timestampedComment = sanitized as typeof sanitized & {
+            createdAt?: Date;
+          };
+          const showContent =
+            sanitized.approvalStatus === 'approved' && Boolean(sanitized.content);
+
+          return {
+            id: sanitized.id,
+            customerId: sanitized.customerId,
+            customerName: sanitized.customerName,
+            rating: sanitized.rating,
+            content: showContent ? sanitized.content : '',
+            commentStatus: sanitized.content
+              ? sanitized.approvalStatus
+              : 'rating-only',
+            createdAt: timestampedComment.createdAt,
+          };
+        }),
+      };
+    } catch (error) {
+      this.handleServiceError(error, 'Ratings could not be listed');
+    }
+  }
+
+  async findCommentsForManager(status?: string) {
+    try {
+      const filter: Record<string, unknown> = {
+        content: { $ne: '' },
+      };
+
+      if (status?.trim()) {
+        if (!['pending', 'approved', 'rejected'].includes(status)) {
+          throw new BadRequestException('Invalid comment status');
+        }
+
+        filter.approvalStatus = status;
+      }
+
+      const comments = await this.commentModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return comments.map((comment) => this.sanitizeComment(comment));
+    } catch (error) {
+      this.handleServiceError(error, 'Manager comments could not be listed');
+    }
+  }
+
+  async reviewComment(id: string, payload: ReviewCommentDto) {
+    try {
+      const comment = await this.commentModel.findById(id).exec();
+
+      if (!comment || !comment.content) {
+        throw new NotFoundException('Comment not found');
+      }
+
+      comment.approvalStatus = payload.approvalStatus;
+      comment.reviewedBy = payload.reviewedBy;
+      comment.reviewNote = payload.reviewNote?.trim() ?? '';
+      comment.reviewedAt = new Date();
+      await comment.save();
+
+      return this.sanitizeComment(comment);
+    } catch (error) {
+      this.handleServiceError(error, 'Comment review could not be saved');
     }
   }
 
@@ -344,6 +614,37 @@ export class MainService {
       return this.sanitizeProduct(product);
     } catch (error) {
       this.handleServiceError(error, 'Product could not be updated');
+    }
+  }
+
+  async updateProductPricing(id: string, payload: UpdateProductPricingDto) {
+    try {
+      if (
+        payload.price === undefined &&
+        payload.discountRate === undefined &&
+        payload.discountActive === undefined
+      ) {
+        throw new BadRequestException(
+          'price, discountRate or discountActive is required',
+        );
+      }
+
+      const product = await this.productModel
+        .findByIdAndUpdate(id, payload, { new: true, runValidators: true })
+        .exec();
+
+      if (!product) {
+        throw new NotFoundException('Product not found');
+      }
+
+      const [hydratedProduct] = await this.attachCategoryMetadata([
+        this.sanitizeProduct(product),
+      ]);
+      const [ratedProduct] = await this.attachRatingMetadata([hydratedProduct]);
+
+      return ratedProduct;
+    } catch (error) {
+      this.handleServiceError(error, 'Product pricing could not be updated');
     }
   }
 

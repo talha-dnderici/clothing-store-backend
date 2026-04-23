@@ -1,4 +1,91 @@
 services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  register:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: register-service
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/clothing_store}
+      JWT_SECRET: ${JWT_SECRET:-super-secret-key}
+      REGISTER_SERVICE_HOST: 0.0.0.0
+      REGISTER_SERVICE_PORT: 4002
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  login:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: login-service
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/clothing_store}
+      JWT_SECRET: ${JWT_SECRET:-super-secret-key}
+      LOGIN_SERVICE_HOST: 0.0.0.0
+      LOGIN_SERVICE_PORT: 4001
+      REGISTER_SERVICE_HOST: register
+      REGISTER_SERVICE_PORT: 4002
+    depends_on:
+      mongo:
+        condition: service_healthy
+      register:
+        condition: service_started
+
+  main:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: main-service
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/clothing_store}
+      MAIN_SERVICE_HOST: 0.0.0.0
+      MAIN_SERVICE_PORT: 4003
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  card:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_NAME: card-service
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/clothing_store}
+      CARD_SERVICE_HOST: 0.0.0.0
+      CARD_SERVICE_PORT: 4004
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_DISABLED: ${SMTP_DISABLED:-false}
+      MAIL_FROM: ${MAIL_FROM:-AURA Store <no-reply@aura.local>}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@aura.local}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
   backend:
     build:
       context: .
@@ -7,59 +94,53 @@ services:
         APP_NAME: api-gateway
     ports:
       - "3000:3000"
-      - "4001:4001"
-      - "4002:4002"
-      - "4003:4003"
-      - "4004:4004"
-    env_file:
-      - .env
+    environment:
+      PORT: 3000
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:-super-secret-key}
+      LOGIN_SERVICE_HOST: login
+      LOGIN_SERVICE_PORT: 4001
+      REGISTER_SERVICE_HOST: register
+      REGISTER_SERVICE_PORT: 4002
+      MAIN_SERVICE_HOST: main
+      MAIN_SERVICE_PORT: 4003
+      CARD_SERVICE_HOST: card
+      CARD_SERVICE_PORT: 4004
     depends_on:
-      - register
-      - login
-      - main
-      - card
+      register:
+        condition: service_started
+      login:
+        condition: service_started
+      main:
+        condition: service_started
+      card:
+        condition: service_started
 
-  register:
+  seed:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        APP_NAME: register-service
-    env_file:
-      - .env
-
-  login:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        APP_NAME: login-service
-    env_file:
-      - .env
-
-  main:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        APP_NAME: main-service
-    env_file:
-      - .env
-
-  card:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        APP_NAME: card-service
-    env_file:
-      - .env
+        APP_NAME: api-gateway
+    command: ["npm", "run", "seed:db"]
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/clothing_store}
+    depends_on:
+      mongo:
+        condition: service_healthy
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:3000
     ports:
-      - "5173:3001"
-    environment:
-      - VITE_API_BASE_URL=http://backend:3000
+      - "3001:3001"
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  mongo-data:

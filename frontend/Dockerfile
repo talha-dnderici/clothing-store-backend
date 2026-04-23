@@ -11,6 +11,8 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend ./
+ARG VITE_API_BASE_URL=http://localhost:3000
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 
 FROM node:20-alpine AS runner

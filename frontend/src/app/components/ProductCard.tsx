@@ -12,6 +12,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { addToCart } = useCart();
   const isOutOfStock = product.stockQuantity === 0;
   const isLowStock = product.stockQuantity > 0 && product.stockQuantity <= 5;
+  const displayPrice = product.effectivePrice ?? product.price;
 
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-xl bg-white shadow-sm transition-all hover:shadow-lg border border-gray-100">
@@ -30,6 +31,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         {isLowStock && (
           <div className="absolute left-3 top-3 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 uppercase tracking-wider shadow-sm">
             Only {product.stockQuantity} left!
+          </div>
+        )}
+        {product.discountActive && !isOutOfStock && (
+          <div className="absolute right-3 top-3 rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-800 uppercase tracking-wider shadow-sm">
+            {product.discountRate}% Off
           </div>
         )}
       </Link>
@@ -52,7 +58,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </div>
 
           <div className="flex items-end justify-between mb-4">
-            <p className="text-xl font-bold text-gray-800">${product.price.toFixed(2)}</p>
+            <div>
+              <p className="text-xl font-bold text-gray-800">${displayPrice.toFixed(2)}</p>
+              {product.discountActive ? (
+                <p className="text-xs font-semibold text-gray-400 line-through">
+                  ${product.price.toFixed(2)}
+                </p>
+              ) : null}
+            </div>
             <span className={`text-xs font-medium ${isOutOfStock ? 'text-red-500' : isLowStock ? 'text-amber-600' : 'text-green-600'}`}>
               {isOutOfStock ? 'Out of Stock' : isLowStock ? `Only ${product.stockQuantity} left` : `${product.stockQuantity} in Stock`}
             </span>
@@ -64,7 +77,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             addToCart({
               id: product.id,
               name: product.name,
-              price: product.price,
+              price: displayPrice,
               imageUrl: product.imageUrl,
               stockQuantity: product.stockQuantity,
             });

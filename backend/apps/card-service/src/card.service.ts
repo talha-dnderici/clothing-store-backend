@@ -8,6 +8,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { RpcException } from '@nestjs/microservices';
 import { Model } from 'mongoose';
+import * as net from 'node:net';
 import {
   Delivery,
   DeliveryDocument,
@@ -94,14 +95,250 @@ export class CardService {
 
   private sanitizeInvoice(invoice: InvoiceDocument) {
     const object = invoice.toObject();
+    const { pdfBase64, ...safeInvoice } = object;
+
     return {
-      id: object._id.toString(),
-      ...object,
+      id: safeInvoice._id.toString(),
+      ...safeInvoice,
+      hasPdf: Boolean(pdfBase64),
     };
   }
 
   private buildInvoiceNumber(orderId: string) {
     return `INV-${orderId.slice(-8).toUpperCase()}`;
+  }
+
+  private buildInvoiceFileName(orderId: string) {
+    return `${this.buildInvoiceNumber(orderId)}.pdf`;
+  }
+
+  private escapePdfText(value: string) {
+    return value.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  }
+
+  private buildInvoicePdf(order: OrderDocument, invoiceNumber: string) {
+    const lines = [
+      `Invoice ${invoiceNumber}`,
+      `Order ID: ${order._id.toString()}`,
+      `Customer: ${order.customerEmail}`,
+      `Delivery Address: ${order.deliveryAddress}`,
+      `Status: ${order.status}`,
+      '',
+      'Items:',
+      ...order.items.map((item) => {
+        const discountedPrice =
+          Math.round(
+            item.unitPrice * item.quantity * (1 - item.discountRate / 100) * 100,
+          ) / 100;
+        return `${item.quantity} x ${item.productName} - $${discountedPrice.toFixed(2)} (${item.discountRate}% discount)`;
+      }),
+      '',
+      `Total: $${order.totalPrice.toFixed(2)}`,
+      `Generated: ${new Date().toISOString()}`,
+    ];
+    const stream = [
+      'BT',
+      '/F1 18 Tf',
+      '50 760 Td',
+      `(${this.escapePdfText(lines[0])}) Tj`,
+      '/F1 10 Tf',
+      ...lines.slice(1).map((line) => `0 -18 Td (${this.escapePdfText(line)}) Tj`),
+      'ET',
+    ].join('\n');
+    const objects = [
+      '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj',
+      '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj',
+      '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj',
+      '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj',
+      `5 0 obj\n<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream\nendobj`,
+    ];
+    let pdf = '%PDF-1.4\n';
+    const offsets: number[] = [];
+
+    for (const object of objects) {
+      offsets.push(Buffer.byteLength(pdf, 'utf8'));
+      pdf += `${object}\n`;
+    }
+
+    const xrefOffset = Buffer.byteLength(pdf, 'utf8');
+    pdf += `xref\n0 ${objects.length + 1}\n`;
+    pdf += '0000000000 65535 f \n';
+    pdf += offsets
+      .map((offset) => `${offset.toString().padStart(10, '0')} 00000 n \n`)
+      .join('');
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n`;
+    pdf += `startxref\n${xrefOffset}\n%%EOF\n`;
+
+    return Buffer.from(pdf, 'utf8');
+  }
+
+  private wrapBase64(value: string) {
+    return value.match(/.{1,76}/g)?.join('\r\n') ?? value;
+  }
+
+  private dotStuff(message: string) {
+    return message
+      .replace(/\r?\n/g, '\r\n')
+      .split('\r\n')
+      .map((line) => (line.startsWith('.') ? `.${line}` : line))
+      .join('\r\n');
+  }
+
+  private composeInvoiceEmail(invoice: InvoiceDocument, order: OrderDocument) {
+    const boundary = `invoice-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const fileName = invoice.pdfFileName || this.buildInvoiceFileName(order._id.toString());
+    const from = process.env.MAIL_FROM || 'AURA Store <no-reply@aura.local>';
+    const subject = `Invoice ${invoice.invoiceNumber}`;
+    const textBody = [
+      `Your invoice ${invoice.invoiceNumber} is attached.`,
+      '',
+      `Order ID: ${order._id.toString()}`,
+      `Total: $${order.totalPrice.toFixed(2)}`,
+      `Delivery status: ${order.status}`,
+    ].join('\r\n');
+
+    return [
+      `From: ${from}`,
+      `To: ${invoice.customerEmail}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset=utf-8',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      textBody,
+      '',
+      `--${boundary}`,
+      `Content-Type: application/pdf; name="${fileName}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${fileName}"`,
+      '',
+      this.wrapBase64(invoice.pdfBase64),
+      '',
+      `--${boundary}--`,
+    ].join('\r\n');
+  }
+
+  private async sendSmtpMail(to: string, message: string) {
+    const host = process.env.SMTP_HOST || 'localhost';
+    const port = Number(process.env.SMTP_PORT || 1025);
+    const fromAddress =
+      process.env.MAIL_FROM_ADDRESS ||
+      (process.env.MAIL_FROM?.match(/<([^>]+)>/)?.[1] ?? 'no-reply@aura.local');
+
+    await new Promise<void>((resolve, reject) => {
+      const socket = net.createConnection({ host, port });
+      let responseBuffer = '';
+      let closed = false;
+      const cleanup = () => {
+        closed = true;
+        socket.removeAllListeners();
+        socket.end();
+      };
+      const waitForResponse = (expectedCodes: number[]) =>
+        new Promise<void>((resolveWait, rejectWait) => {
+          const startedAt = Date.now();
+          const timer = setInterval(() => {
+            const lines = responseBuffer.split(/\r?\n/).filter(Boolean);
+            const finalLine = [...lines]
+              .reverse()
+              .find((line) => /^\d{3} /.test(line));
+
+            if (finalLine) {
+              const code = Number(finalLine.slice(0, 3));
+              const response = responseBuffer.trim();
+              responseBuffer = '';
+              clearInterval(timer);
+
+              if (expectedCodes.includes(code)) {
+                resolveWait();
+              } else {
+                rejectWait(new Error(`SMTP ${response}`));
+              }
+            }
+
+            if (Date.now() - startedAt > 8000) {
+              clearInterval(timer);
+              rejectWait(new Error('SMTP response timed out'));
+            }
+          }, 20);
+        });
+      const writeCommand = async (command: string, expectedCodes: number[]) => {
+        socket.write(`${command}\r\n`);
+        await waitForResponse(expectedCodes);
+      };
+
+      socket.setTimeout(10000);
+      socket.on('data', (chunk) => {
+        responseBuffer += chunk.toString('utf8');
+      });
+      socket.once('timeout', () => {
+        cleanup();
+        reject(new Error('SMTP connection timed out'));
+      });
+      socket.once('error', (error) => {
+        if (!closed) {
+          cleanup();
+          reject(error);
+        }
+      });
+      socket.once('connect', async () => {
+        try {
+          await waitForResponse([220]);
+          await writeCommand('EHLO aura.local', [250]);
+          await writeCommand(`MAIL FROM:<${fromAddress}>`, [250]);
+          await writeCommand(`RCPT TO:<${to}>`, [250, 251]);
+          await writeCommand('DATA', [354]);
+          socket.write(`${this.dotStuff(message)}\r\n.\r\n`);
+          await waitForResponse([250]);
+          await writeCommand('QUIT', [221]);
+          cleanup();
+          resolve();
+        } catch (error) {
+          cleanup();
+          reject(error);
+        }
+      });
+    });
+  }
+
+  private async sendInvoiceEmail(
+    invoice: InvoiceDocument,
+    order: OrderDocument,
+    force = false,
+  ) {
+    if (process.env.SMTP_DISABLED === 'true') {
+      invoice.emailStatus = 'skipped';
+      invoice.emailError = 'SMTP_DISABLED=true';
+      await invoice.save();
+      return invoice;
+    }
+
+    if (invoice.emailedToCustomer && !force) {
+      return invoice;
+    }
+
+    try {
+      await this.sendSmtpMail(
+        invoice.customerEmail,
+        this.composeInvoiceEmail(invoice, order),
+      );
+      invoice.emailedToCustomer = true;
+      invoice.emailStatus = 'sent';
+      invoice.emailError = '';
+      invoice.emailedAt = new Date();
+      await invoice.save();
+      return invoice;
+    } catch (error) {
+      invoice.emailedToCustomer = false;
+      invoice.emailStatus = 'failed';
+      invoice.emailError =
+        error instanceof Error ? error.message : 'Invoice email failed';
+      await invoice.save();
+      return invoice;
+    }
   }
 
   private normalizeItemText(value?: string) {
@@ -245,19 +482,26 @@ export class CardService {
     }
   }
 
-  private async createInvoiceForOrder(order: OrderDocument) {
+  private async createInvoiceForOrder(order: OrderDocument, sendEmail = true) {
     const orderId = order._id.toString();
+    const invoiceNumber = this.buildInvoiceNumber(orderId);
+    const pdfFileName = this.buildInvoiceFileName(orderId);
+    const pdfBase64 = this.buildInvoicePdf(order, invoiceNumber).toString('base64');
     const invoice = await this.invoiceModel
       .findOneAndUpdate(
         { orderId },
         {
+          $set: {
+            totalAmount: order.totalPrice,
+            pdfUrl: `/orders/${orderId}/invoice/pdf`,
+            pdfBase64,
+            pdfFileName,
+          },
           $setOnInsert: {
-            invoiceNumber: this.buildInvoiceNumber(orderId),
+            invoiceNumber,
             orderId,
             customerId: order.customerId,
             customerEmail: order.customerEmail,
-            totalAmount: order.totalPrice,
-            pdfUrl: '',
             emailedToCustomer: false,
           },
         },
@@ -272,7 +516,11 @@ export class CardService {
     order.invoiceId = invoice._id.toString();
     await order.save();
 
-    return invoice;
+    if (!sendEmail) {
+      return invoice;
+    }
+
+    return this.sendInvoiceEmail(invoice, order);
   }
 
   // The card service stores only references and shopping preferences.
@@ -574,7 +822,7 @@ export class CardService {
           productName: product.name,
           quantity: item.quantity,
           unitPrice: product.price,
-          discountRate: product.discountRate ?? 0,
+          discountRate: product.discountActive ? (product.discountRate ?? 0) : 0,
         };
       });
 
@@ -673,6 +921,19 @@ export class CardService {
     }
   }
 
+  async findAllOrders() {
+    try {
+      const orders = await this.orderModel
+        .find()
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return orders.map((order) => this.sanitizeOrder(order));
+    } catch (error) {
+      this.handleServiceError(error, 'Orders could not be listed');
+    }
+  }
+
   async findOneOrder(id: string) {
     try {
       const order = await this.orderModel.findById(id).exec();
@@ -731,11 +992,71 @@ export class CardService {
 
       const invoice =
         (await this.invoiceModel.findOne({ orderId }).exec()) ??
-        (await this.createInvoiceForOrder(order));
+        (await this.createInvoiceForOrder(order, false));
 
       return this.sanitizeInvoice(invoice);
     } catch (error) {
       this.handleServiceError(error, 'Invoice could not be fetched');
+    }
+  }
+
+  async findOrderInvoicePdf(orderId: string) {
+    try {
+      const order = await this.orderModel.findById(orderId).exec();
+
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+
+      const invoice =
+        (await this.invoiceModel.findOne({ orderId }).exec()) ??
+        (await this.createInvoiceForOrder(order, false));
+
+      if (!invoice.pdfBase64) {
+        invoice.pdfBase64 = this
+          .buildInvoicePdf(order, invoice.invoiceNumber)
+          .toString('base64');
+        invoice.pdfFileName =
+          invoice.pdfFileName || this.buildInvoiceFileName(orderId);
+        invoice.pdfUrl = `/orders/${orderId}/invoice/pdf`;
+        await invoice.save();
+      }
+
+      return {
+        fileName: invoice.pdfFileName || this.buildInvoiceFileName(orderId),
+        contentType: 'application/pdf',
+        base64: invoice.pdfBase64,
+      };
+    } catch (error) {
+      this.handleServiceError(error, 'Invoice PDF could not be fetched');
+    }
+  }
+
+  async emailOrderInvoice(orderId: string) {
+    try {
+      const order = await this.orderModel.findById(orderId).exec();
+
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+
+      const invoice =
+        (await this.invoiceModel.findOne({ orderId }).exec()) ??
+        (await this.createInvoiceForOrder(order, false));
+
+      if (!invoice.pdfBase64) {
+        invoice.pdfBase64 = this
+          .buildInvoicePdf(order, invoice.invoiceNumber)
+          .toString('base64');
+        invoice.pdfFileName =
+          invoice.pdfFileName || this.buildInvoiceFileName(orderId);
+        invoice.pdfUrl = `/orders/${orderId}/invoice/pdf`;
+      }
+
+      const emailedInvoice = await this.sendInvoiceEmail(invoice, order, true);
+      return this.sanitizeInvoice(emailedInvoice);
+    } catch (error) {
+      this.handleServiceError(error, 'Invoice email could not be sent');
     }
   }
 

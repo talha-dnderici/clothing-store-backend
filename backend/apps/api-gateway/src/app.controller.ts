@@ -14,12 +14,13 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { ClientProxy } from '@nestjs/microservices';
-import { IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { firstValueFrom } from 'rxjs';
 import { SERVICE_TOKENS } from '@app/common/constants/service-tokens';
 import { LoginDto } from '../../login-service/src/dto/login.dto';
@@ -58,6 +59,54 @@ class MockPaymentRequestDto {
 class UpdateOrderStatusRequestDto {
   @IsIn(['processing', 'in-transit', 'delivered'])
   status!: 'processing' | 'in-transit' | 'delivered';
+}
+
+class SubmitCommentRequestDto {
+  @IsString()
+  content!: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  rating?: number;
+}
+
+class SubmitRatingRequestDto {
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @IsOptional()
+  @IsString()
+  content?: string;
+}
+
+class ReviewCommentRequestDto {
+  @IsIn(['approved', 'rejected'])
+  approvalStatus!: 'approved' | 'rejected';
+
+  @IsOptional()
+  @IsString()
+  reviewNote?: string;
+}
+
+class UpdateProductPricingRequestDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  price?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  discountRate?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  discountActive?: boolean;
 }
 
 type AuthenticatedUser = {
@@ -180,9 +229,23 @@ export class AppController {
     }
   }
 
-  private requireProductManager(user: AuthenticatedUser) {
-    if (user.role !== 'productManager') {
-      throw new ForbiddenException('Product manager access is required');
+  private requireManager(user: AuthenticatedUser) {
+    if (!['salesManager', 'productManager'].includes(user.role)) {
+      throw new ForbiddenException('Manager access is required');
+    }
+  }
+
+  private async getCustomerDisplayName(user: AuthenticatedUser) {
+    try {
+      const profile = await this.sendMessage<{ name?: string }>(
+        this.registerClient,
+        'register.findOneUser',
+        user.sub,
+      );
+
+      return profile.name?.trim() || user.email.split('@')[0] || 'Customer';
+    } catch {
+      return user.email.split('@')[0] || 'Customer';
     }
   }
 
@@ -191,6 +254,26 @@ export class AppController {
     return {
       service: 'api-gateway',
       message: 'Clothing store microservice backend is running',
+    };
+  }
+
+  @Get('playground')
+  getPlaygroundInfo() {
+    return {
+      frontend: 'http://localhost:3001/playground',
+      mailInbox: 'http://localhost:8025',
+      testUsers: {
+        customer: 'customer@aura.test',
+        manager: 'manager@aura.test',
+        password: 'password123',
+      },
+      flows: [
+        'Submit a rating without approval',
+        'Submit a comment without a rating and approve it as manager',
+        'Checkout and receive a PDF invoice email in Mailpit',
+        'Update order status as manager',
+        'Update price and discount as manager',
+      ],
     };
   }
 
@@ -279,6 +362,54 @@ export class AppController {
     return this.sendMessage(this.mainClient, 'main.findOneProduct', id);
   }
 
+  @Post('products/:id/comments')
+  @HttpCode(HttpStatus.CREATED)
+  async submitComment(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: SubmitCommentRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const customerName = await this.getCustomerDisplayName(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.createComment', {
+      productId: id,
+      customerId: authUser.sub,
+      customerName,
+      content: dto.content,
+      rating: dto.rating,
+    });
+  }
+
+  @Post('products/:id/ratings')
+  @HttpCode(HttpStatus.CREATED)
+  async submitRating(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: SubmitRatingRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const customerName = await this.getCustomerDisplayName(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.createRating', {
+      productId: id,
+      customerId: authUser.sub,
+      customerName,
+      rating: dto.rating,
+      content: dto.content,
+    });
+  }
+
+  @Get('products/:id/comments')
+  findPublicComments(@Param('id') id: string) {
+    return this.sendMessage(this.mainClient, 'main.findPublicComments', id);
+  }
+
+  @Get('products/:id/ratings')
+  findProductRatings(@Param('id') id: string) {
+    return this.sendMessage(this.mainClient, 'main.findProductRatings', id);
+  }
+
   @Get('categories/:id')
   findOneCategory(@Param('id') id: string) {
     return this.sendMessage(this.mainClient, 'main.findOneCategory', id);
@@ -287,6 +418,53 @@ export class AppController {
   @Patch('products/:id')
   updateProduct(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.sendMessage(this.mainClient, 'main.updateProduct', { id, dto });
+  }
+
+  @Get('manager/comments')
+  async findManagerComments(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('status') status?: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.findCommentsForManager', {
+      status,
+    });
+  }
+
+  @Patch('manager/comments/:id')
+  async reviewComment(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: ReviewCommentRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.reviewComment', {
+      id,
+      dto: {
+        approvalStatus: dto.approvalStatus,
+        reviewedBy: authUser.sub,
+        reviewNote: dto.reviewNote,
+      },
+    });
+  }
+
+  @Patch('manager/products/:id/pricing')
+  async updateProductPricing(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateProductPricingRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.updateProductPricing', {
+      id,
+      dto,
+    });
   }
 
   @Patch('categories/:id')
@@ -386,6 +564,31 @@ export class AppController {
     });
   }
 
+  @Get('manager/orders')
+  async findManagerOrders(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.findAllOrders', {});
+  }
+
+  @Patch('manager/orders/:id/status')
+  async updateManagerOrderStatus(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderStatusRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.updateOrderStatus', {
+      orderId: id,
+      status: dto.status,
+    });
+  }
+
   @Get('orders/status/my')
   async findMyOrderDeliveryStatus(
     @Headers('authorization') authorization: string | undefined,
@@ -408,11 +611,67 @@ export class AppController {
       id,
     );
 
-    if (order.customerId !== authUser.sub && authUser.role !== 'productManager') {
+    if (
+      order.customerId !== authUser.sub &&
+      !['salesManager', 'productManager'].includes(authUser.role)
+    ) {
       throw new ForbiddenException('You cannot view this invoice');
     }
 
     return this.sendMessage(this.cardClient, 'card.findOrderInvoice', id);
+  }
+
+  @Get('orders/:id/invoice/pdf')
+  async findOrderInvoicePdf(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Res() res: any,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const order = await this.sendMessage<{ customerId: string }>(
+      this.cardClient,
+      'card.findOneOrder',
+      id,
+    );
+
+    if (
+      order.customerId !== authUser.sub &&
+      !['salesManager', 'productManager'].includes(authUser.role)
+    ) {
+      throw new ForbiddenException('You cannot view this invoice PDF');
+    }
+
+    const pdf = await this.sendMessage<{
+      fileName: string;
+      contentType: string;
+      base64: string;
+    }>(this.cardClient, 'card.findOrderInvoicePdf', id);
+
+    res.setHeader('Content-Type', pdf.contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${pdf.fileName}"`);
+    return res.send(Buffer.from(pdf.base64, 'base64'));
+  }
+
+  @Post('orders/:id/invoice/email')
+  async emailOrderInvoice(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const order = await this.sendMessage<{ customerId: string }>(
+      this.cardClient,
+      'card.findOneOrder',
+      id,
+    );
+
+    if (
+      order.customerId !== authUser.sub &&
+      !['salesManager', 'productManager'].includes(authUser.role)
+    ) {
+      throw new ForbiddenException('You cannot email this invoice');
+    }
+
+    return this.sendMessage(this.cardClient, 'card.emailOrderInvoice', id);
   }
 
   @Get('orders/:id')
@@ -427,7 +686,10 @@ export class AppController {
       id,
     );
 
-    if (order.customerId !== authUser.sub && authUser.role !== 'productManager') {
+    if (
+      order.customerId !== authUser.sub &&
+      !['salesManager', 'productManager'].includes(authUser.role)
+    ) {
       throw new ForbiddenException('You cannot view this order');
     }
 
@@ -441,7 +703,7 @@ export class AppController {
     @Body() dto: UpdateOrderStatusRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireProductManager(authUser);
+    this.requireManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.updateOrderStatus', {
       orderId: id,
@@ -454,7 +716,7 @@ export class AppController {
     @Headers('authorization') authorization: string | undefined,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireProductManager(authUser);
+    this.requireManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.findDeliveries', {});
   }
@@ -466,7 +728,7 @@ export class AppController {
     @Body() dto: UpdateOrderStatusRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireProductManager(authUser);
+    this.requireManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.updateDeliveryStatus', {
       deliveryId: id,

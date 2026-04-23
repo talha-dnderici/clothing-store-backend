@@ -14,11 +14,11 @@ export class Comment {
   @Prop({ required: true, trim: true })
   customerName!: string;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ default: '', trim: true })
   content!: string;
 
-  @Prop({ required: true, min: 1, max: 5 })
-  rating!: number;
+  @Prop({ min: 1, max: 5 })
+  rating?: number;
 
   @Prop({
     type: String,
@@ -29,6 +29,12 @@ export class Comment {
 
   @Prop({ default: '' })
   reviewedBy!: string;
+
+  @Prop({ default: '' })
+  reviewNote!: string;
+
+  @Prop({ default: null })
+  reviewedAt!: Date | null;
 }
 
 export const CommentSchema = SchemaFactory.createForClass(Comment);

@@ -55,6 +55,11 @@ export class CardController {
     return this.cardService.findOrdersForUser(payload.userId);
   }
 
+  @MessagePattern('card.findAllOrders')
+  findAllOrders() {
+    return this.cardService.findAllOrders();
+  }
+
   @MessagePattern('card.findOrderDeliveryStatusForUser')
   findOrderDeliveryStatusForUser(@Payload() payload: CartUserDto) {
     return this.cardService.findOrderDeliveryStatusForUser(payload.userId);
@@ -68,6 +73,16 @@ export class CardController {
   @MessagePattern('card.findOrderInvoice')
   findOrderInvoice(@Payload() id: string) {
     return this.cardService.findOrderInvoice(id);
+  }
+
+  @MessagePattern('card.findOrderInvoicePdf')
+  findOrderInvoicePdf(@Payload() id: string) {
+    return this.cardService.findOrderInvoicePdf(id);
+  }
+
+  @MessagePattern('card.emailOrderInvoice')
+  emailOrderInvoice(@Payload() id: string) {
+    return this.cardService.emailOrderInvoice(id);
   }
 
   @MessagePattern('card.mockPayment')

@@ -82,6 +82,7 @@ export default function ProductDetail() {
 
   const isOutOfStock = product.stockQuantity === 0;
   const isLowStock = product.stockQuantity > 0 && product.stockQuantity <= 5;
+  const displayPrice = product.effectivePrice ?? product.price;
 
   const thumbnails = [
     product.imageUrl,
@@ -93,7 +94,7 @@ export default function ProductDetail() {
     const success = addToCart({
       id: product.id,
       name: product.name,
-      price: product.price,
+      price: displayPrice,
       imageUrl: product.imageUrl,
       stockQuantity: product.stockQuantity,
     }, quantity);
@@ -152,7 +153,19 @@ export default function ProductDetail() {
               <span className="text-sm font-medium text-gray-600">{product.rating} out of 5</span>
             </div>
 
-            <div className="text-4xl font-bold text-gray-900">${product.price.toFixed(2)}</div>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="text-4xl font-bold text-gray-900">${displayPrice.toFixed(2)}</div>
+              {product.discountActive ? (
+                <>
+                  <div className="pb-1 text-lg font-semibold text-gray-400 line-through">
+                    ${product.price.toFixed(2)}
+                  </div>
+                  <span className="mb-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-red-700">
+                    {product.discountRate}% off
+                  </span>
+                </>
+              ) : null}
+            </div>
           </div>
 
           {/* Specs */}
@@ -218,7 +231,7 @@ export default function ProductDetail() {
               {addedFeedback ? (
                 <><Check size={24} /> Added to Cart!</>
               ) : (
-                <><ShoppingCart size={24} /> {isOutOfStock ? 'Out of Stock' : `Add to Cart — $${(product.price * quantity).toFixed(2)}`}</>
+                <><ShoppingCart size={24} /> {isOutOfStock ? 'Out of Stock' : `Add to Cart — $${(displayPrice * quantity).toFixed(2)}`}</>
               )}
             </button>
 

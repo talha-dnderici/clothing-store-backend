@@ -1,6 +1,6 @@
 # Clothing Store Backend
 
-This project is a NestJS microservice backend for a clothing store website. It uses MongoDB, keeps DTO and interface files explicit for readability, and exposes all CRUD and single-item endpoints through one HTTP API gateway. It also includes a separate Next.js playground frontend to test every endpoint from the browser.
+This project is a NestJS microservice backend for a clothing store website. It uses MongoDB, keeps DTO and interface files explicit for readability, and exposes all CRUD and single-item endpoints through one HTTP API gateway. It also includes a Vite playground frontend to test checkout, invoice email, comments, ratings, manager approval, order status, and pricing flows from the browser.
 
 ## Architecture
 
@@ -9,7 +9,8 @@ This project is a NestJS microservice backend for a clothing store website. It u
 - `login-service`: Authentication and login session CRUD.
 - `main-service`: Product CRUD.
 - `card-service`: Shopping card CRUD.
-- `mongodb atlas`: Shared cloud database used by all services through `MONGODB_URI`.
+- `mongodb`: Shared database used by all services through `MONGODB_URI`.
+- `mailpit`: Local SMTP inbox for invoice emails in Docker.
 
 Microservices communicate with each other over NestJS TCP transport. The `login-service` asks the `register-service` for user credentials instead of duplicating user documents, which helps avoid unnecessary data waste.
 
@@ -36,7 +37,7 @@ Dockerfile
 cp .env.example .env
 ```
 
-2. Update values in `.env`, especially `MONGODB_URI`, with your own MongoDB Atlas connection string.
+2. Update values in `.env` if you want to override the Docker defaults.
 
 ### MongoDB Atlas Setup
 
@@ -68,7 +69,7 @@ Important:
 
 ## Run With Docker
 
-Use one command to build and start the whole project:
+Use one command to build and start the whole project, including MongoDB, seed data, Mailpit, backend services, and the playground frontend:
 
 ```bash
 docker compose up --build
@@ -78,9 +79,20 @@ The API gateway will be available at:
 
 - `http://localhost:3000`
 
-The Next.js playground will be available at:
+The playground frontend will be available at:
 
-- `http://localhost:3001`
+- `http://localhost:3001/playground`
+
+The local email inbox will be available at:
+
+- `http://localhost:8025`
+
+Seeded test users:
+
+```text
+customer@aura.test / password123
+manager@aura.test / password123
+```
 
 To stop containers:
 
@@ -170,6 +182,30 @@ The frontend development server runs on:
 - `GET /products/:id`
 - `PATCH /products/:id`
 - `DELETE /products/:id`
+- `PATCH /manager/products/:id/pricing`
+
+### Comments and Ratings
+
+- `POST /products/:id/comments`
+- `POST /products/:id/ratings`
+- `GET /products/:id/comments`
+- `GET /products/:id/ratings`
+- `GET /manager/comments?status=pending`
+- `PATCH /manager/comments/:id`
+
+Ratings are published immediately. Comments can be submitted without a rating, and every comment with text remains pending until a manager approves it.
+
+### Orders and Invoices
+
+- `POST /orders/checkout`
+- `GET /orders`
+- `GET /manager/orders`
+- `PATCH /manager/orders/:id/status`
+- `GET /orders/:id/invoice`
+- `GET /orders/:id/invoice/pdf`
+- `POST /orders/:id/invoice/email`
+
+Checkout generates a PDF invoice and sends it through SMTP. In Docker, the PDF email is delivered to Mailpit.
 
 ### Cards
 
@@ -179,15 +215,9 @@ The frontend development server runs on:
 - `PATCH /cards/:id`
 - `DELETE /cards/:id`
 
-## Frontend Playground
+## Playground
 
-The Next.js playground is designed to test all CRUD flows without fighting browser CORS rules.
-
-- Browser requests go to the frontend first.
-- The frontend forwards requests through `/api/proxy/*`.
-- The proxy then calls the API gateway.
-
-This means you can keep the backend untouched and still test all endpoints from a UI.
+Open `http://localhost:3001/playground` after `docker compose up --build`. The page includes customer login, manager login, rating submission, comment approval, checkout, invoice PDF/email controls, order status management, and product price/discount controls.
 
 ## Example Payloads
 

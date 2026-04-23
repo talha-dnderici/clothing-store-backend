@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShoppingCart, User, Menu, LogOut } from 'lucide-react';
+import { FlaskConical, ShoppingCart, User, Menu, LogOut } from 'lucide-react';
 import { Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -37,6 +37,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
 
             {/* Actions */}
             <div className="flex items-center gap-4 sm:gap-6">
+              <Link
+                to="/playground"
+                className="hidden md:flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-950 transition-colors"
+              >
+                <FlaskConical size={18} />
+                <span>Playground</span>
+              </Link>
+
               {user ? (
                 <div className="hidden sm:flex items-center gap-4">
                   <span className="text-sm font-semibold text-gray-900 bg-gray-100 px-3 py-1.5 rounded-full">
@@ -77,4 +85,3 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
     </>
   );
 };
-

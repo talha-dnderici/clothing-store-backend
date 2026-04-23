@@ -23,8 +23,27 @@ export class Invoice {
   @Prop({ default: '' })
   pdfUrl!: string;
 
+  @Prop({ default: '' })
+  pdfBase64!: string;
+
+  @Prop({ default: '' })
+  pdfFileName!: string;
+
   @Prop({ default: false })
   emailedToCustomer!: boolean;
+
+  @Prop({
+    type: String,
+    enum: ['pending', 'sent', 'failed', 'skipped'],
+    default: 'pending',
+  })
+  emailStatus!: 'pending' | 'sent' | 'failed' | 'skipped';
+
+  @Prop({ default: '' })
+  emailError!: string;
+
+  @Prop({ default: null })
+  emailedAt!: Date | null;
 }
 
 export const InvoiceSchema = SchemaFactory.createForClass(Invoice);
