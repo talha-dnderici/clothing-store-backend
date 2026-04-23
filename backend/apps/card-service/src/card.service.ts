@@ -12,6 +12,10 @@ import {
   Delivery,
   DeliveryDocument,
 } from '@app/common/database/schemas/delivery.schema';
+import {
+  Invoice,
+  InvoiceDocument,
+} from '@app/common/database/schemas/invoice.schema';
 import { Order, OrderDocument } from '@app/common/database/schemas/order.schema';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { CheckoutDto } from './dto/checkout.dto';
@@ -38,6 +42,8 @@ export class CardService {
     private readonly orderModel: Model<OrderDocument>,
     @InjectModel(Delivery.name)
     private readonly deliveryModel: Model<DeliveryDocument>,
+    @InjectModel(Invoice.name)
+    private readonly invoiceModel: Model<InvoiceDocument>,
   ) {}
 
   private readonly deliveryStatusOrder = ['processing', 'in-transit', 'delivered'] as const;
@@ -86,6 +92,18 @@ export class CardService {
     };
   }
 
+  private sanitizeInvoice(invoice: InvoiceDocument) {
+    const object = invoice.toObject();
+    return {
+      id: object._id.toString(),
+      ...object,
+    };
+  }
+
+  private buildInvoiceNumber(orderId: string) {
+    return `INV-${orderId.slice(-8).toUpperCase()}`;
+  }
+
   private normalizeItemText(value?: string) {
     return value?.trim() ?? '';
   }
@@ -109,6 +127,10 @@ export class CardService {
   private getOrderStatusFromDeliveries(
     deliveries: Array<{ status: 'processing' | 'in-transit' | 'delivered' }>,
   ) {
+    if (!deliveries.length) {
+      return 'processing';
+    }
+
     if (deliveries.every((delivery) => delivery.status === 'delivered')) {
       return 'delivered';
     }
@@ -221,6 +243,36 @@ export class CardService {
 
       this.handleServiceError(error, 'Active card could not be created');
     }
+  }
+
+  private async createInvoiceForOrder(order: OrderDocument) {
+    const orderId = order._id.toString();
+    const invoice = await this.invoiceModel
+      .findOneAndUpdate(
+        { orderId },
+        {
+          $setOnInsert: {
+            invoiceNumber: this.buildInvoiceNumber(orderId),
+            orderId,
+            customerId: order.customerId,
+            customerEmail: order.customerEmail,
+            totalAmount: order.totalPrice,
+            pdfUrl: '',
+            emailedToCustomer: false,
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      )
+      .exec();
+
+    if (!invoice) {
+      throw new InternalServerErrorException('Invoice could not be generated');
+    }
+
+    order.invoiceId = invoice._id.toString();
+    await order.save();
+
+    return invoice;
   }
 
   // The card service stores only references and shopping preferences.
@@ -426,6 +478,7 @@ export class CardService {
     const decrementedStock: Array<{ productId: string; quantity: number }> = [];
     let createdOrder: OrderDocument | null = null;
     let claimedCard: CardDocument | null = null;
+    let createdInvoice: InvoiceDocument | null = null;
 
     try {
       const userId = payload.userId.trim();
@@ -561,8 +614,11 @@ export class CardService {
         })),
       );
 
+      createdInvoice = await this.createInvoiceForOrder(createdOrder);
+
       return {
         order: this.sanitizeOrder(createdOrder),
+        invoice: this.sanitizeInvoice(createdInvoice),
         deliveryStatus: 'processing',
       };
     } catch (error) {
@@ -584,6 +640,10 @@ export class CardService {
       );
 
       if (createdOrder) {
+        if (createdInvoice) {
+          await this.invoiceModel.deleteOne({ _id: createdInvoice._id }).exec();
+        }
+
         await this.deliveryModel
           .deleteMany({ orderId: createdOrder._id.toString() })
           .exec();
@@ -624,6 +684,84 @@ export class CardService {
       return this.sanitizeOrder(order);
     } catch (error) {
       this.handleServiceError(error, 'Order could not be fetched');
+    }
+  }
+
+  async findOrderDeliveryStatusForUser(userId: string) {
+    try {
+      const normalizedUserId = userId.trim();
+      const [orders, deliveries] = await Promise.all([
+        this.orderModel
+          .find({ customerId: normalizedUserId })
+          .sort({ createdAt: -1 })
+          .exec(),
+        this.deliveryModel
+          .find({ customerId: normalizedUserId })
+          .sort({ createdAt: -1 })
+          .exec(),
+      ]);
+
+      return orders.map((order) => {
+        const orderId = order._id.toString();
+        const orderDeliveries = deliveries
+          .filter((delivery) => delivery.orderId === orderId)
+          .map((delivery) => this.sanitizeDelivery(delivery));
+        const deliveryStatus = orderDeliveries.length
+          ? this.getOrderStatusFromDeliveries(orderDeliveries)
+          : order.status;
+
+        return {
+          order: this.sanitizeOrder(order),
+          deliveryStatus,
+          deliveries: orderDeliveries,
+        };
+      });
+    } catch (error) {
+      this.handleServiceError(error, 'Order and delivery status could not be listed');
+    }
+  }
+
+  async findOrderInvoice(orderId: string) {
+    try {
+      const order = await this.orderModel.findById(orderId).exec();
+
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+
+      const invoice =
+        (await this.invoiceModel.findOne({ orderId }).exec()) ??
+        (await this.createInvoiceForOrder(order));
+
+      return this.sanitizeInvoice(invoice);
+    } catch (error) {
+      this.handleServiceError(error, 'Invoice could not be fetched');
+    }
+  }
+
+  mockPayment(payload: { userId: string; amount?: number; orderId?: string }) {
+    try {
+      const amount = Number(payload.amount ?? 0);
+
+      if (!payload.userId?.trim()) {
+        throw new BadRequestException('userId is required');
+      }
+
+      if (Number.isNaN(amount) || amount < 0) {
+        throw new BadRequestException('amount must be a positive number');
+      }
+
+      return {
+        paymentId: `PAY-${Date.now()}`,
+        userId: payload.userId,
+        orderId: payload.orderId ?? null,
+        amount,
+        status: 'approved',
+        paymentConfirmed: true,
+        provider: 'mock-payment',
+      };
+    } catch (error) {
+      this.handleServiceError(error, 'Mock payment could not be completed');
     }
   }
 

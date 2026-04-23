@@ -55,9 +55,24 @@ export class CardController {
     return this.cardService.findOrdersForUser(payload.userId);
   }
 
+  @MessagePattern('card.findOrderDeliveryStatusForUser')
+  findOrderDeliveryStatusForUser(@Payload() payload: CartUserDto) {
+    return this.cardService.findOrderDeliveryStatusForUser(payload.userId);
+  }
+
   @MessagePattern('card.findOneOrder')
   findOneOrder(@Payload() id: string) {
     return this.cardService.findOneOrder(id);
+  }
+
+  @MessagePattern('card.findOrderInvoice')
+  findOrderInvoice(@Payload() id: string) {
+    return this.cardService.findOrderInvoice(id);
+  }
+
+  @MessagePattern('card.mockPayment')
+  mockPayment(@Payload() payload: { userId: string; amount?: number; orderId?: string }) {
+    return this.cardService.mockPayment(payload);
   }
 
   @MessagePattern('card.updateOrderStatus')
