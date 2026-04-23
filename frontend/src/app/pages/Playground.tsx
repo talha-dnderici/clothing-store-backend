@@ -329,7 +329,7 @@ export default function Playground() {
     });
 
     setCheckoutResult(response.data as CheckoutResult);
-    addLog('Checkout complete. Invoice email requested.', 'ok');
+    addLog('Checkout complete. Invoice is ready.', 'ok');
     await refreshOrders();
     await loadProducts();
   };
@@ -341,7 +341,7 @@ export default function Playground() {
     setCheckoutResult((current) =>
       current ? { ...current, invoice: response.data as Invoice } : current,
     );
-    addLog('Invoice email resent.', 'ok');
+    addLog('Invoice email sent.', 'ok');
   };
 
   const openInvoicePdf = async (orderId: string) => {
@@ -815,10 +815,11 @@ export default function Playground() {
                   <button
                     type="button"
                     onClick={() => run('resend-invoice', () => resendInvoice(checkoutResult.order.id))}
+                    disabled={Boolean(busyAction) || checkoutResult.invoice.emailStatus === 'sent'}
                     className="inline-flex items-center justify-center gap-2 rounded-md border border-stone-300 px-3 py-2 text-sm font-bold hover:bg-stone-50"
                   >
                     <Mail size={16} />
-                    Email
+                    {checkoutResult.invoice.emailStatus === 'sent' ? 'Sent' : 'Email'}
                   </button>
                   <a
                     href="http://localhost:8025"

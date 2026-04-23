@@ -547,7 +547,7 @@ export class CardService {
     }
   }
 
-  private async createInvoiceForOrder(order: OrderDocument, sendEmail = true) {
+  private async createInvoiceForOrder(order: OrderDocument, sendEmail = false) {
     const orderId = order._id.toString();
     const invoiceNumber = this.buildInvoiceNumber(orderId);
     const pdfFileName = this.buildInvoiceFileName(orderId);
@@ -927,7 +927,7 @@ export class CardService {
         })),
       );
 
-      createdInvoice = await this.createInvoiceForOrder(createdOrder);
+      createdInvoice = await this.createInvoiceForOrder(createdOrder, false);
 
       return {
         order: this.sanitizeOrder(createdOrder),
@@ -1118,7 +1118,7 @@ export class CardService {
         invoice.pdfUrl = `/orders/${orderId}/invoice/pdf`;
       }
 
-      const emailedInvoice = await this.sendInvoiceEmail(invoice, order, true);
+      const emailedInvoice = await this.sendInvoiceEmail(invoice, order, false);
 
       if (emailedInvoice.emailStatus !== 'sent') {
         throw new InternalServerErrorException(
