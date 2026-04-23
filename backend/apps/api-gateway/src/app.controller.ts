@@ -19,7 +19,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { ClientProxy } from '@nestjs/microservices';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 import { firstValueFrom } from 'rxjs';
 import { SERVICE_TOKENS } from '@app/common/constants/service-tokens';
 import { LoginDto } from '../../login-service/src/dto/login.dto';
@@ -43,6 +43,16 @@ class CheckoutRequestDto {
   @IsOptional()
   @IsString()
   deliveryAddress?: string;
+}
+
+class MockPaymentRequestDto {
+  @IsOptional()
+  @IsNumber()
+  amount?: number;
+
+  @IsOptional()
+  @IsString()
+  orderId?: string;
 }
 
 class UpdateOrderStatusRequestDto {
@@ -352,6 +362,20 @@ export class AppController {
     });
   }
 
+  @Post('payments/mock')
+  @HttpCode(HttpStatus.OK)
+  async mockPayment(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: MockPaymentRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    return this.sendMessage(this.cardClient, 'card.mockPayment', {
+      userId: authUser.sub,
+      amount: dto.amount,
+      orderId: dto.orderId,
+    });
+  }
+
   @Get('orders')
   async findMyOrders(
     @Headers('authorization') authorization: string | undefined,
@@ -360,6 +384,35 @@ export class AppController {
     return this.sendMessage(this.cardClient, 'card.findOrdersForUser', {
       userId: authUser.sub,
     });
+  }
+
+  @Get('orders/status/my')
+  async findMyOrderDeliveryStatus(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    return this.sendMessage(this.cardClient, 'card.findOrderDeliveryStatusForUser', {
+      userId: authUser.sub,
+    });
+  }
+
+  @Get('orders/:id/invoice')
+  async findOrderInvoice(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const order = await this.sendMessage<{ customerId: string }>(
+      this.cardClient,
+      'card.findOneOrder',
+      id,
+    );
+
+    if (order.customerId !== authUser.sub && authUser.role !== 'productManager') {
+      throw new ForbiddenException('You cannot view this invoice');
+    }
+
+    return this.sendMessage(this.cardClient, 'card.findOrderInvoice', id);
   }
 
   @Get('orders/:id')

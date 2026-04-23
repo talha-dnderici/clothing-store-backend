@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { createMongoConfig } from '@app/common/database/mongo.config';
 import { Delivery, DeliverySchema } from '@app/common/database/schemas/delivery.schema';
+import { Invoice, InvoiceSchema } from '@app/common/database/schemas/invoice.schema';
 import { Order, OrderSchema } from '@app/common/database/schemas/order.schema';
 import { CardController } from './card.controller';
 import { CardService } from './card.service';
@@ -24,6 +25,7 @@ import { Product, ProductSchema } from '../../main-service/src/schemas/product.s
       { name: Product.name, schema: ProductSchema },
       { name: Order.name, schema: OrderSchema },
       { name: Delivery.name, schema: DeliverySchema },
+      { name: Invoice.name, schema: InvoiceSchema },
     ]),
   ],
   controllers: [CardController],
