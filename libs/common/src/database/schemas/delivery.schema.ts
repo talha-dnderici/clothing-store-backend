@@ -31,10 +31,10 @@ export class Delivery {
 
   @Prop({
     type: String,
-    enum: ['processing', 'in-transit', 'delivered', 'cancelled', 'refunded'],
+    enum: ['processing', 'in-transit', 'delivered'],
     default: 'processing',
   })
-  status!: 'processing' | 'in-transit' | 'delivered' | 'cancelled' | 'refunded';
+  status!: 'processing' | 'in-transit' | 'delivered';
 
   @Prop({ default: false })
   completed!: boolean;

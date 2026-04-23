@@ -19,6 +19,7 @@ import { CreateCardDto } from './dto/create-card.dto';
 import { RemoveCartItemDto } from './dto/remove-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
+import { UpdateDeliveryStatusDto } from './dto/update-delivery-status.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Card, CardDocument } from './schemas/card.schema';
 import {
@@ -38,6 +39,8 @@ export class CardService {
     @InjectModel(Delivery.name)
     private readonly deliveryModel: Model<DeliveryDocument>,
   ) {}
+
+  private readonly deliveryStatusOrder = ['processing', 'in-transit', 'delivered'] as const;
 
   private handleServiceError(error: unknown, fallbackMessage: string): never {
     if (error instanceof HttpException) {
@@ -85,6 +88,36 @@ export class CardService {
 
   private normalizeItemText(value?: string) {
     return value?.trim() ?? '';
+  }
+
+  private assertValidDeliveryTransition(
+    currentStatus: string,
+    nextStatus: 'processing' | 'in-transit' | 'delivered',
+  ) {
+    const currentIndex = this.deliveryStatusOrder.findIndex(
+      (status) => status === currentStatus,
+    );
+    const nextIndex = this.deliveryStatusOrder.indexOf(nextStatus);
+
+    if (nextIndex !== currentIndex + 1) {
+      throw new BadRequestException(
+        `Invalid delivery status transition from ${currentStatus} to ${nextStatus}`,
+      );
+    }
+  }
+
+  private getOrderStatusFromDeliveries(
+    deliveries: Array<{ status: 'processing' | 'in-transit' | 'delivered' }>,
+  ) {
+    if (deliveries.every((delivery) => delivery.status === 'delivered')) {
+      return 'delivered';
+    }
+
+    if (deliveries.some((delivery) => delivery.status === 'in-transit')) {
+      return 'in-transit';
+    }
+
+    return 'processing';
   }
 
   private isSameItem(
@@ -392,6 +425,7 @@ export class CardService {
   async checkout(payload: CheckoutDto) {
     const decrementedStock: Array<{ productId: string; quantity: number }> = [];
     let createdOrder: OrderDocument | null = null;
+    let claimedCard: CardDocument | null = null;
 
     try {
       const userId = payload.userId.trim();
@@ -405,13 +439,23 @@ export class CardService {
         throw new BadRequestException('deliveryAddress is required');
       }
 
+      if (payload.paymentConfirmed !== true) {
+        throw new BadRequestException('Payment must be confirmed before checkout');
+      }
+
       const card = await this.cardModel
-        .findOne({ userId, status: 'active' })
+        .findOneAndUpdate(
+          { userId, status: 'active', items: { $ne: [] } },
+          { status: 'ordered' },
+          { new: true, runValidators: true },
+        )
         .exec();
 
       if (!card || !card.items.length) {
         throw new BadRequestException('Active cart is empty');
       }
+
+      claimedCard = card;
 
       const requestedByProduct = new Map<string, number>();
       for (const item of card.items) {
@@ -517,14 +561,17 @@ export class CardService {
         })),
       );
 
-      card.status = 'ordered';
-      await card.save();
-
       return {
         order: this.sanitizeOrder(createdOrder),
         deliveryStatus: 'processing',
       };
     } catch (error) {
+      if (claimedCard && !createdOrder) {
+        await this.cardModel
+          .updateOne({ _id: claimedCard._id }, { status: 'active' })
+          .exec();
+      }
+
       await Promise.all(
         decrementedStock.map((item) =>
           this.productModel
@@ -541,6 +588,12 @@ export class CardService {
           .deleteMany({ orderId: createdOrder._id.toString() })
           .exec();
         await this.orderModel.deleteOne({ _id: createdOrder._id }).exec();
+
+        if (claimedCard) {
+          await this.cardModel
+            .updateOne({ _id: claimedCard._id }, { status: 'active' })
+            .exec();
+        }
       }
 
       this.handleServiceError(error, 'Checkout could not be completed');
@@ -576,19 +629,18 @@ export class CardService {
 
   async updateOrderStatus(payload: UpdateOrderStatusDto) {
     try {
-      const completed = payload.status === 'delivered';
-      const order = await this.orderModel
-        .findByIdAndUpdate(
-          payload.orderId,
-          { status: payload.status },
-          { new: true, runValidators: true },
-        )
-        .exec();
+      const order = await this.orderModel.findById(payload.orderId).exec();
 
       if (!order) {
         throw new NotFoundException('Order not found');
       }
 
+      this.assertValidDeliveryTransition(order.status, payload.status);
+
+      order.status = payload.status;
+      await order.save();
+
+      const completed = payload.status === 'delivered';
       await this.deliveryModel
         .updateMany(
           { orderId: payload.orderId },
@@ -600,6 +652,39 @@ export class CardService {
       return this.sanitizeOrder(order);
     } catch (error) {
       this.handleServiceError(error, 'Order status could not be updated');
+    }
+  }
+
+  async updateDeliveryStatus(payload: UpdateDeliveryStatusDto) {
+    try {
+      const delivery = await this.deliveryModel
+        .findOne({ deliveryId: payload.deliveryId })
+        .exec();
+
+      if (!delivery) {
+        throw new NotFoundException('Delivery not found');
+      }
+
+      this.assertValidDeliveryTransition(delivery.status, payload.status);
+
+      delivery.status = payload.status;
+      delivery.completed = payload.status === 'delivered';
+      await delivery.save();
+
+      const deliveriesForOrder = await this.deliveryModel
+        .find({ orderId: delivery.orderId })
+        .select('status')
+        .lean()
+        .exec();
+      const orderStatus = this.getOrderStatusFromDeliveries(deliveriesForOrder);
+
+      await this.orderModel
+        .findByIdAndUpdate(delivery.orderId, { status: orderStatus })
+        .exec();
+
+      return this.sanitizeDelivery(delivery);
+    } catch (error) {
+      this.handleServiceError(error, 'Delivery status could not be updated');
     }
   }
 

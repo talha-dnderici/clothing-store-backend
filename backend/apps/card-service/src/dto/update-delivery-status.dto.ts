@@ -1,8 +1,8 @@
 import { IsIn, IsString } from 'class-validator';
 
-export class UpdateOrderStatusDto {
+export class UpdateDeliveryStatusDto {
   @IsString()
-  orderId!: string;
+  deliveryId!: string;
 
   @IsIn(['processing', 'in-transit', 'delivered'])
   status!: 'processing' | 'in-transit' | 'delivered';

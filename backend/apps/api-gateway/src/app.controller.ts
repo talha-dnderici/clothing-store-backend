@@ -46,8 +46,8 @@ class CheckoutRequestDto {
 }
 
 class UpdateOrderStatusRequestDto {
-  @IsIn(['processing', 'in-transit', 'delivered', 'cancelled', 'refunded'])
-  status!: 'processing' | 'in-transit' | 'delivered' | 'cancelled' | 'refunded';
+  @IsIn(['processing', 'in-transit', 'delivered'])
+  status!: 'processing' | 'in-transit' | 'delivered';
 }
 
 type AuthenticatedUser = {
@@ -348,6 +348,7 @@ export class AppController {
       userId: authUser.sub,
       customerEmail: authUser.email,
       deliveryAddress,
+      paymentConfirmed: true,
     });
   }
 
@@ -403,6 +404,21 @@ export class AppController {
     this.requireProductManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.findDeliveries', {});
+  }
+
+  @Patch('deliveries/:id/status')
+  async updateDeliveryStatus(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderStatusRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.updateDeliveryStatus', {
+      deliveryId: id,
+      status: dto.status,
+    });
   }
 
   @Get('deliveries/my')

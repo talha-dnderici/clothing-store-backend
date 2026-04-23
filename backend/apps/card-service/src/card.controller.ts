@@ -7,6 +7,7 @@ import { CreateCardDto } from './dto/create-card.dto';
 import { RemoveCartItemDto } from './dto/remove-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
+import { UpdateDeliveryStatusDto } from './dto/update-delivery-status.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { CardService } from './card.service';
 
@@ -62,6 +63,11 @@ export class CardController {
   @MessagePattern('card.updateOrderStatus')
   updateOrderStatus(@Payload() payload: UpdateOrderStatusDto) {
     return this.cardService.updateOrderStatus(payload);
+  }
+
+  @MessagePattern('card.updateDeliveryStatus')
+  updateDeliveryStatus(@Payload() payload: UpdateDeliveryStatusDto) {
+    return this.cardService.updateDeliveryStatus(payload);
   }
 
   @MessagePattern('card.findDeliveries')
