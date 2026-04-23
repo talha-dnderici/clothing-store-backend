@@ -16,6 +16,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { api } from '../utils/api';
+import { EndpointTester } from '../components/EndpointTester';
 import { mapProducts } from '../utils/mapProduct';
 import { CatalogProduct } from '../types/catalog';
 
@@ -953,6 +954,8 @@ export default function Playground() {
             </button>
           </div>
         </section>
+
+        <EndpointTester />
       </main>
     </div>
   );

@@ -42,7 +42,7 @@ export class Invoice {
   @Prop({ default: '' })
   emailError!: string;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   emailedAt!: Date | null;
 }
 

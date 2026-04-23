@@ -33,7 +33,7 @@ export class Comment {
   @Prop({ default: '' })
   reviewNote!: string;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   reviewedAt!: Date | null;
 }
 
