@@ -8,6 +8,7 @@ import { MemoryRouter, Routes, Route } from 'react-router';
 import Cart from '../pages/Cart';
 import { CartProvider, useCart } from '../context/CartContext';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { ToastProvider } from '../context/ToastContext';
 
 const Seeder: React.FC<{ login?: boolean }> = ({ login }) => {
   const { addToCart } = useCart();
@@ -27,12 +28,14 @@ const renderCart = (login = false) =>
     <MemoryRouter initialEntries={['/cart']}>
       <AuthProvider>
         <CartProvider>
-          <Seeder login={login} />
-          <Routes>
-            <Route path="/cart" element={<Cart />} />
-            <Route path="/auth" element={<div data-testid="auth-page" />} />
-            <Route path="/checkout" element={<div data-testid="checkout-page-stub" />} />
-          </Routes>
+          <ToastProvider>
+            <Seeder login={login} />
+            <Routes>
+              <Route path="/cart" element={<Cart />} />
+              <Route path="/auth" element={<div data-testid="auth-page" />} />
+              <Route path="/checkout" element={<div data-testid="checkout-page-stub" />} />
+            </Routes>
+          </ToastProvider>
         </CartProvider>
       </AuthProvider>
     </MemoryRouter>,

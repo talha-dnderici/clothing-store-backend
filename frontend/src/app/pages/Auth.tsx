@@ -5,21 +5,36 @@ import { useAuth } from '../context/AuthContext';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuth();
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setSubmitting(true);
     const formData = new FormData(e.currentTarget);
     const email = formData.get('email') as string;
     const fullName = formData.get('fullName') as string;
-    
-    // Simulate login/registration
-    if (email) {
-      login(email, fullName);
-      navigate('/');
-    }
+    setTimeout(() => {
+      if (email) {
+        login(email, fullName);
+        navigate('/');
+      }
+      setSubmitting(false);
+    }, 500);
   };
+
+  const passwordStrength = (() => {
+    if (!password) return { score: 0, label: '' };
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^A-Za-z0-9]/.test(password)) score++;
+    const labels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
+    return { score, label: labels[score] };
+  })();
 
   return (
     <div className="flex min-h-screen bg-white font-sans selection:bg-black selection:text-white">
@@ -141,9 +156,31 @@ export default function Auth() {
                   id="password"
                   name="password"
                   required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   className="block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black sm:text-sm transition-colors"
                 />
+                {!isLogin && password && (
+                  <div className="mt-2">
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div
+                          key={i}
+                          className={`h-1 flex-1 rounded-full transition-colors ${
+                            i <= passwordStrength.score
+                              ? passwordStrength.score < 2 ? 'bg-red-500'
+                              : passwordStrength.score < 3 ? 'bg-amber-500'
+                              : passwordStrength.score < 4 ? 'bg-lime-500'
+                              : 'bg-green-600'
+                              : 'bg-gray-200'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 font-medium">{passwordStrength.label}</p>
+                  </div>
+                )}
               </div>
 
               {isLogin && (
@@ -156,10 +193,34 @@ export default function Auth() {
 
               <button
                 type="submit"
-                className="mt-6 flex w-full justify-center rounded-lg bg-black px-4 py-3 text-sm font-semibold text-white shadow-md transition-all hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
+                disabled={submitting}
+                className="mt-6 flex w-full justify-center items-center gap-2 rounded-lg bg-black px-4 py-3 text-sm font-semibold text-white shadow-md transition-all hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2 active:scale-[0.98] disabled:opacity-70"
               >
-                {isLogin ? 'Sign In' : 'Create Account'}
+                {submitting ? (
+                  <><span className="inline-block h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Please wait…</>
+                ) : (
+                  isLogin ? 'Sign In' : 'Create Account'
+                )}
               </button>
+
+              <div className="relative mt-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-200" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-white px-3 text-gray-400 uppercase tracking-widest font-semibold">Or</span>
+                </div>
+              </div>
+              <p className="mt-6 text-center text-sm text-gray-500">
+                {isLogin ? "Don't have an account?" : 'Already a member?'}{' '}
+                <button
+                  type="button"
+                  onClick={() => setIsLogin((v) => !v)}
+                  className="font-bold text-black hover:underline underline-offset-4"
+                >
+                  {isLogin ? 'Create one' : 'Sign in'}
+                </button>
+              </p>
             </form>
           </div>
           

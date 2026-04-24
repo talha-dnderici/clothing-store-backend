@@ -46,15 +46,7 @@ class CheckoutRequestDto {
   deliveryAddress?: string;
 }
 
-class MockPaymentRequestDto {
-  @IsOptional()
-  @IsNumber()
-  amount?: number;
 
-  @IsOptional()
-  @IsString()
-  orderId?: string;
-}
 
 class UpdateOrderStatusRequestDto {
   @IsIn(['processing', 'in-transit', 'delivered'])
@@ -610,19 +602,7 @@ export class AppController {
     });
   }
 
-  @Post('payments/mock')
-  @HttpCode(HttpStatus.OK)
-  async mockPayment(
-    @Headers('authorization') authorization: string | undefined,
-    @Body() dto: MockPaymentRequestDto,
-  ) {
-    const authUser = await this.requireAuth(authorization);
-    return this.sendMessage(this.cardClient, 'card.mockPayment', {
-      userId: authUser.sub,
-      amount: dto.amount,
-      orderId: dto.orderId,
-    });
-  }
+
 
   @Get('orders')
   async findMyOrders(
