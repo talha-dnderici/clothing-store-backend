@@ -92,6 +92,17 @@ class ReviewCommentRequestDto {
   reviewNote?: string;
 }
 
+class UpdateStockRequestDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  stock?: number;
+
+  @IsOptional()
+  @IsNumber()
+  adjustment?: number;
+}
+
 class UpdateProductPricingRequestDto {
   @IsOptional()
   @IsNumber()
@@ -464,6 +475,35 @@ export class AppController {
     return this.sendMessage(this.mainClient, 'main.updateProductPricing', {
       id,
       dto,
+    });
+  }
+
+  @Patch('manager/products/:id/stock')
+  async updateProductStock(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateStockRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.updateStock', {
+      id,
+      dto,
+    });
+  }
+
+  @Get('manager/products/low-stock')
+  async findLowStockProducts(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('threshold') threshold?: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    const parsedThreshold = threshold ? Number.parseInt(threshold, 10) : 5;
+    return this.sendMessage(this.mainClient, 'main.findLowStock', {
+      threshold: Number.isFinite(parsedThreshold) ? parsedThreshold : 5,
     });
   }
 

@@ -21,6 +21,7 @@ import { ReviewCommentDto } from './dto/review-comment.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductPricingDto } from './dto/update-product-pricing.dto';
+import { UpdateStockDto } from './dto/update-stock.dto';
 import { Category, CategoryDocument } from './schemas/category.schema';
 import { Product, ProductDocument } from './schemas/product.schema';
 
@@ -700,6 +701,51 @@ export class MainService {
       };
     } catch (error) {
       this.handleServiceError(error, 'Product could not be deleted');
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // SCRUM-12: Product Manager — stock management
+  // ---------------------------------------------------------------------
+  async updateStock(id: string, payload: UpdateStockDto) {
+    try {
+      if (payload.stock === undefined && payload.adjustment === undefined) {
+        throw new BadRequestException(
+          'Either stock or adjustment must be provided',
+        );
+      }
+
+      const product = await this.productModel.findById(id).exec();
+      if (!product) {
+        throw new NotFoundException('Product not found');
+      }
+
+      if (payload.stock !== undefined) {
+        product.stock = payload.stock;
+      } else if (payload.adjustment !== undefined) {
+        const next = product.stock + payload.adjustment;
+        if (next < 0) {
+          throw new BadRequestException('Stock cannot drop below 0');
+        }
+        product.stock = next;
+      }
+
+      await product.save();
+      return this.sanitizeProduct(product);
+    } catch (error) {
+      this.handleServiceError(error, 'Stock could not be updated');
+    }
+  }
+
+  async findLowStockProducts(threshold = 5) {
+    try {
+      const products = await this.productModel
+        .find({ stock: { $lte: threshold } })
+        .sort({ stock: 1 })
+        .exec();
+      return products.map((product) => this.sanitizeProduct(product));
+    } catch (error) {
+      this.handleServiceError(error, 'Low-stock products could not be listed');
     }
   }
 
