@@ -1,8 +1,9 @@
 import React from 'react';
-import { ShoppingCart, Star } from 'lucide-react';
+import { ShoppingCart, Star, Eye } from 'lucide-react';
 import { Link } from 'react-router';
 import { CatalogProduct } from '../types/catalog';
 import { useCart } from '../context/CartContext';
+import { useToast } from '../context/ToastContext';
 
 interface ProductCardProps {
   product: CatalogProduct;
@@ -10,38 +11,66 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { addToCart } = useCart();
+  const { showToast } = useToast();
   const isOutOfStock = product.stockQuantity === 0;
   const isLowStock = product.stockQuantity > 0 && product.stockQuantity <= 5;
   const displayPrice = product.effectivePrice ?? product.price;
+
+  const handleAdd = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ok = addToCart({
+      id: product.id,
+      name: product.name,
+      price: displayPrice,
+      imageUrl: product.imageUrl,
+      stockQuantity: product.stockQuantity,
+    });
+    if (ok) {
+      showToast({
+        title: 'Added to cart',
+        description: product.name,
+        image: product.imageUrl,
+        variant: 'success',
+      });
+    }
+  };
 
   return (
     <div
       data-testid="product-card"
       data-out-of-stock={isOutOfStock ? 'true' : 'false'}
       aria-disabled={isOutOfStock}
-      className={`group relative flex flex-col overflow-hidden rounded-xl bg-white shadow-sm transition-all hover:shadow-lg border border-gray-100 ${
+      className={`group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1 border border-gray-100 ${
         isOutOfStock ? 'opacity-70' : ''
       }`}
     >
-      {/* Clickable image area */}
       <Link to={`/product/${product.id}`} className="relative aspect-[4/5] w-full overflow-hidden bg-gray-100 block">
         <img
           src={product.imageUrl}
           alt={product.name}
-          className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-105"
+          className="h-full w-full object-cover object-center transition-transform duration-700 group-hover:scale-110"
         />
+        {/* Quick-view hint overlay */}
+        {!isOutOfStock && (
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4">
+            <span className="flex items-center gap-1.5 rounded-full bg-white/90 backdrop-blur-sm px-3 py-1.5 text-xs font-bold text-gray-900 shadow-lg">
+              <Eye size={12} /> Quick view
+            </span>
+          </div>
+        )}
         {isOutOfStock && (
           <div className="absolute left-3 top-3 rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-800 uppercase tracking-wider shadow-sm">
             Sold Out
           </div>
         )}
         {isLowStock && (
-          <div className="absolute left-3 top-3 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 uppercase tracking-wider shadow-sm">
+          <div className="absolute left-3 top-3 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 uppercase tracking-wider shadow-sm animate-pulse">
             Only {product.stockQuantity} left!
           </div>
         )}
         {product.discountActive && !isOutOfStock && (
-          <div className="absolute right-3 top-3 rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-800 uppercase tracking-wider shadow-sm">
+          <div className="absolute right-3 top-3 rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white uppercase tracking-wider shadow-lg">
             {product.discountRate}% Off
           </div>
         )}
@@ -56,7 +85,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             </Link>
           </h3>
 
-          {/* Rating */}
           <div className="flex items-center gap-1 mb-3">
             {[1, 2, 3, 4, 5].map((star) => (
               <Star key={star} size={14} className={star <= Math.round(product.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'} />
@@ -82,20 +110,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         <button
           data-testid="add-to-cart-btn"
           aria-label={isOutOfStock ? 'Out of stock' : `Add ${product.name} to cart`}
-          onClick={() => {
-            addToCart({
-              id: product.id,
-              name: product.name,
-              price: displayPrice,
-              imageUrl: product.imageUrl,
-              stockQuantity: product.stockQuantity,
-            });
-          }}
+          onClick={handleAdd}
           disabled={isOutOfStock}
-          className={`mt-auto flex w-full items-center justify-center gap-2 rounded-lg py-3 px-4 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 ${
+          className={`mt-auto flex w-full items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 active:scale-[0.97] ${
             isOutOfStock
               ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              : 'bg-black text-white hover:bg-gray-800'
+              : 'bg-black text-white hover:bg-gray-800 shadow-md hover:shadow-xl hover:shadow-black/20'
           }`}
         >
           <ShoppingCart size={18} />
