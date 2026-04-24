@@ -111,6 +111,13 @@ export const api = {
       token,
     );
   },
+  submitReview(token: string, productId: string, body: Record<string, unknown>) {
+    return request(
+      `/products/${productId}/reviews`,
+      { method: 'POST', body: JSON.stringify(body) },
+      token,
+    );
+  },
   getProductComments(productId: string) {
     return request(`/products/${productId}/comments`);
   },

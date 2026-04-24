@@ -83,6 +83,17 @@ class SubmitRatingRequestDto {
   content?: string;
 }
 
+class SubmitReviewRequestDto {
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @IsOptional()
+  @IsString()
+  content?: string;
+}
+
 class ReviewCommentRequestDto {
   @IsIn(['approved', 'rejected'])
   approvalStatus!: 'approved' | 'rejected';
@@ -398,6 +409,25 @@ export class AppController {
     @Headers('authorization') authorization: string | undefined,
     @Param('id') id: string,
     @Body() dto: SubmitRatingRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const customerName = await this.getCustomerDisplayName(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.createRating', {
+      productId: id,
+      customerId: authUser.sub,
+      customerName,
+      rating: dto.rating,
+      content: dto.content,
+    });
+  }
+
+  @Post('products/:id/reviews')
+  @HttpCode(HttpStatus.CREATED)
+  async submitReview(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: SubmitReviewRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
     const customerName = await this.getCustomerDisplayName(authUser);
