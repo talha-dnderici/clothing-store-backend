@@ -10,7 +10,12 @@ import { CatalogProduct } from '../types/catalog';
 
 type ProductsResponse = {
   items?: unknown[];
+  total?: number;
+  page?: number;
+  limit?: number;
 };
+
+const PRODUCTS_PER_PAGE = 12;
 
 export default function Home() {
   const { searchQuery, activeCategory } = useOutletContext<{
@@ -19,8 +24,16 @@ export default function Home() {
   }>();
   const [sortBy, setSortBy] = useState('');
   const [products, setProducts] = useState<CatalogProduct[]>([]);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    setProducts([]);
+    setTotalProducts(0);
+    setPage(1);
+  }, [activeCategory, searchQuery, sortBy]);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,17 +46,24 @@ export default function Home() {
     if (sortBy === 'PriceLow') params.sort = 'price_asc';
     else if (sortBy === 'PriceHigh') params.sort = 'price_desc';
     else if (sortBy === 'Rating') params.sort = 'popularity';
+    params.page = String(page);
+    params.limit = String(PRODUCTS_PER_PAGE);
 
     api.getProducts(params)
       .then(res => {
         if (!cancelled) {
           const payload = res.data as ProductsResponse;
-          setProducts(mapProducts(payload.items ?? []));
+          const mappedProducts = mapProducts(payload.items ?? []);
+          setTotalProducts(payload.total ?? mappedProducts.length);
+          setProducts(currentProducts =>
+            page === 1 ? mappedProducts : [...currentProducts, ...mappedProducts]
+          );
         }
       })
       .catch(() => {
         if (!cancelled) {
           setProducts([]);
+          setTotalProducts(0);
           setErrorMessage('Products could not be loaded from the database.');
         }
       })
@@ -52,7 +72,11 @@ export default function Home() {
       });
 
     return () => { cancelled = true; };
-  }, [activeCategory, searchQuery, sortBy]);
+  }, [activeCategory, page, searchQuery, sortBy]);
+
+  const hasMoreProducts = products.length < totalProducts;
+  const isInitialLoading = isLoading && page === 1;
+  const isLoadingMore = isLoading && page > 1;
 
   return (
     <div>
@@ -63,13 +87,25 @@ export default function Home() {
       )}
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <FilterSection sortBy={sortBy} setSortBy={setSortBy} count={products.length} />
+        <FilterSection sortBy={sortBy} setSortBy={setSortBy} count={totalProducts} />
         {errorMessage ? (
           <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
             {errorMessage}
           </div>
         ) : null}
-        <ProductGrid products={products} isLoading={isLoading} />
+        <ProductGrid products={products} isLoading={isInitialLoading} />
+        {!errorMessage && hasMoreProducts ? (
+          <div className="pb-12 text-center">
+            <button
+              type="button"
+              onClick={() => setPage(currentPage => currentPage + 1)}
+              disabled={isLoadingMore}
+              className="rounded-full bg-black px-6 py-3 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-400"
+            >
+              {isLoadingMore ? 'Loading...' : 'Load More Products'}
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
