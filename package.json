@@ -5,6 +5,7 @@
   "private": true,
   "license": "MIT",
   "scripts": {
+    "test:backend": "jest",
     "build": "nest build api-gateway && nest build login-service && nest build register-service && nest build main-service && nest build card-service",
     "start": "node dist/backend/apps/api-gateway/src/main.js",
     "start:dev:gateway": "nest start api-gateway --watch",
@@ -41,11 +42,14 @@
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",
     "@nestjs/schematics": "^11.0.4",
-    "@nestjs/testing": "^11.1.6",
+    "@nestjs/testing": "^11.1.19",
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.3",
+    "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.5.2",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.9.2"
