@@ -15,7 +15,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const displayPrice = product.effectivePrice ?? product.price;
 
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-xl bg-white shadow-sm transition-all hover:shadow-lg border border-gray-100">
+    <div
+      data-testid="product-card"
+      data-out-of-stock={isOutOfStock ? 'true' : 'false'}
+      aria-disabled={isOutOfStock}
+      className={`group relative flex flex-col overflow-hidden rounded-xl bg-white shadow-sm transition-all hover:shadow-lg border border-gray-100 ${
+        isOutOfStock ? 'opacity-70' : ''
+      }`}
+    >
       {/* Clickable image area */}
       <Link to={`/product/${product.id}`} className="relative aspect-[4/5] w-full overflow-hidden bg-gray-100 block">
         <img
@@ -73,6 +80,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         </div>
 
         <button
+          data-testid="add-to-cart-btn"
+          aria-label={isOutOfStock ? 'Out of stock' : `Add ${product.name} to cart`}
           onClick={() => {
             addToCart({
               id: product.id,
