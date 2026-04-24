@@ -17,6 +17,28 @@ export default function ProductDetail() {
   const [addedFeedback, setAddedFeedback] = useState(false);
   const [activeImage, setActiveImage] = useState('');
 
+  // Review states
+  const [publicComments, setPublicComments] = useState<any[]>([]);
+  const [ratingSummary, setRatingSummary] = useState({ ratingAverage: 0, ratingCount: 0 });
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewText, setReviewText] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [reviewSuccess, setReviewSuccess] = useState('');
+
+  const fetchReviews = () => {
+    if (!id) return;
+    Promise.all([
+      api.getProductRatings(id),
+      api.getProductComments(id)
+    ])
+      .then(([ratingsRes, commentsRes]) => {
+        setRatingSummary(ratingsRes.data);
+        setPublicComments(commentsRes.data);
+      })
+      .catch((err) => console.error('Failed to load reviews:', err));
+  };
+
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
@@ -41,6 +63,8 @@ export default function ProductDetail() {
       .finally(() => {
         if (!cancelled) setIsLoading(false);
       });
+
+    fetchReviews();
 
     return () => { cancelled = true; };
   }, [id]);
@@ -106,6 +130,32 @@ export default function ProductDetail() {
     }
   };
 
+  const submitReview = async () => {
+    if (!reviewRating || !id) return;
+    setIsSubmittingReview(true);
+    setReviewSuccess('');
+    try {
+      // Auto-authenticate as a test user
+      const loginRes = await api.login({ email: 'customer@aura.test', password: 'password123' });
+      const token = loginRes.data.token;
+
+      const payload: Record<string, unknown> = { rating: reviewRating };
+      if (reviewText.trim()) payload.content = reviewText;
+
+      await api.submitReview(token, id, payload);
+
+      setReviewSuccess(payload.content ? 'Review submitted and pending manager approval!' : 'Rating submitted directly!');
+      setShowReviewForm(false);
+      setReviewText('');
+      setReviewRating(5);
+      fetchReviews();
+    } catch (err: any) {
+      alert('Failed to submit review: ' + err.message);
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
       <Link
@@ -147,10 +197,10 @@ export default function ProductDetail() {
             <div className="flex flex-wrap items-center gap-4 mb-6">
               <div className="flex items-center gap-1">
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <Star key={star} size={20} className={star <= Math.round(product.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'} />
+                  <Star key={star} size={20} className={star <= Math.round(ratingSummary.ratingAverage || product.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'} />
                 ))}
               </div>
-              <span className="text-sm font-medium text-gray-600">{product.rating} out of 5</span>
+              <span className="text-sm font-medium text-gray-600">{(ratingSummary.ratingAverage || product.rating).toFixed(1)} out of 5 ({ratingSummary.ratingCount || 0} reviews)</span>
             </div>
 
             <div className="flex flex-wrap items-end gap-3">
@@ -247,41 +297,91 @@ export default function ProductDetail() {
       <div className="mt-24 pt-16 border-t border-gray-200">
         <div className="flex items-center justify-between mb-10">
           <h2 className="text-2xl font-bold text-gray-900">Comments & Reviews</h2>
-          <button className="text-sm font-bold text-black border-b-2 border-black hover:text-gray-600 hover:border-gray-600 transition-colors pb-1">
-            Write a Review
+          <button 
+            onClick={() => setShowReviewForm(!showReviewForm)}
+            className="text-sm font-bold text-black border-b-2 border-black hover:text-gray-600 hover:border-gray-600 transition-colors pb-1"
+          >
+            {showReviewForm ? 'Cancel Review' : 'Write a Review'}
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="flex gap-5 p-6 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-            <div className="h-12 w-12 flex-shrink-0 rounded-full bg-gray-200 overflow-hidden ring-2 ring-offset-2 ring-gray-100">
-              <img
-                src="https://images.unsplash.com/photo-1563237023-b1e970526dcb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=100"
-                alt="Sarah Jenkins"
-                className="h-full w-full object-cover"
-              />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-3">
-                  <h4 className="font-bold text-gray-900 text-lg">Sarah Jenkins</h4>
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full uppercase tracking-wider">
-                    <Check size={10} strokeWidth={3} /> Verified Buyer
-                  </span>
-                </div>
-                <span className="text-xs text-gray-400 font-medium">2 days ago</span>
-              </div>
-              <div className="flex items-center mb-4">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <Star key={star} size={14} className="fill-yellow-400 text-yellow-400" />
-                ))}
-              </div>
-              <p className="text-gray-600 leading-relaxed text-sm sm:text-base">
-                Absolutely in love with this! The quality exceeded my expectations.
-                The material feels premium and the fit is just perfect. Highly recommend AURA!
-              </p>
-            </div>
+        {reviewSuccess && (
+          <div className="mb-8 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-800 flex items-center gap-2">
+            <Check size={18} />
+            {reviewSuccess}
           </div>
+        )}
+
+        {showReviewForm && (
+          <div className="mb-12 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm transition-all animate-in fade-in slide-in-from-top-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Share Your Experience</h3>
+            <div className="mb-6 flex gap-2">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setReviewRating(value)}
+                  className={`h-12 w-12 rounded-xl border-2 transition-all flex items-center justify-center
+                    ${value <= reviewRating
+                      ? 'border-yellow-400 bg-yellow-50 text-yellow-500'
+                      : 'border-gray-100 bg-white text-gray-300 hover:border-yellow-200 hover:text-yellow-400'
+                    }`}
+                >
+                  <Star size={20} className={value <= reviewRating ? 'fill-yellow-400' : ''} />
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+              placeholder="What did you love about this product? (Optional)"
+              rows={4}
+              className="mb-4 w-full rounded-xl border-2 border-gray-100 p-4 text-gray-900 placeholder-gray-400 focus:border-black focus:ring-0 transition-colors resize-none"
+            />
+            <button
+              onClick={submitReview}
+              disabled={isSubmittingReview}
+              className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl bg-black px-8 py-4 text-sm font-bold text-white hover:bg-gray-800 transition-all disabled:opacity-50"
+            >
+              {isSubmittingReview ? 'Submitting...' : 'Submit Review'}
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {publicComments.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-300 p-12 text-center text-gray-500 lg:col-span-2">
+              <Star size={32} className="mx-auto mb-4 text-gray-300" />
+              <p className="font-semibold text-gray-900">No comments yet</p>
+              <p className="text-sm">Be the first to share your thoughts on this product!</p>
+            </div>
+          ) : (
+            publicComments.map((comment) => (
+              <div key={comment.id} className="flex gap-5 p-6 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                <div className="h-12 w-12 flex-shrink-0 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 font-bold overflow-hidden ring-2 ring-offset-2 ring-gray-100">
+                  {comment.customerName.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <h4 className="font-bold text-gray-900 text-lg">{comment.customerName}</h4>
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full uppercase tracking-wider">
+                        <Check size={10} strokeWidth={3} /> Verified
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center mb-4">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star key={star} size={14} className={star <= (comment.rating || 5) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-200'} />
+                    ))}
+                  </div>
+                  <p className="text-gray-600 leading-relaxed text-sm sm:text-base">
+                    {comment.content}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
