@@ -1,6 +1,8 @@
 import React from 'react';
 import { X, Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -9,6 +11,17 @@ interface CartDrawerProps {
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
   const { items, removeFromCart, updateQuantity, totalPrice, clearCart } = useCart();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleCheckout = () => {
+    onClose();
+    if (!user) {
+      navigate('/auth?redirect=/checkout');
+      return;
+    }
+    navigate('/checkout');
+  };
 
   return (
     <>
@@ -94,8 +107,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
               <span className="text-sm font-medium text-gray-500">Subtotal</span>
               <span className="text-lg font-bold text-gray-900">${totalPrice.toFixed(2)}</span>
             </div>
-            <button className="w-full rounded-xl bg-black py-3.5 text-sm font-bold text-white shadow-lg hover:bg-gray-800 transition-colors">
-              Checkout
+            <button
+              data-testid="drawer-checkout-btn"
+              onClick={handleCheckout}
+              className="w-full rounded-xl bg-black py-3.5 text-sm font-bold text-white shadow-lg hover:bg-gray-800 transition-colors"
+            >
+              {user ? 'Checkout' : 'Sign in to Checkout'}
             </button>
             <button
               onClick={clearCart}
