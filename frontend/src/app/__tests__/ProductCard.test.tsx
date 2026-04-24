@@ -7,11 +7,14 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { ProductCard } from '../components/ProductCard';
 import { CartProvider, useCart } from '../context/CartContext';
+import { ToastProvider } from '../context/ToastContext';
 import type { CatalogProduct } from '../types/catalog';
 
 const wrap = (ui: React.ReactNode) => (
   <MemoryRouter>
-    <CartProvider>{ui}</CartProvider>
+    <CartProvider>
+      <ToastProvider>{ui}</ToastProvider>
+    </CartProvider>
   </MemoryRouter>
 );
 
@@ -48,6 +51,8 @@ describe('ProductCard — FE-4', () => {
   });
 });
 
+import { act } from '@testing-library/react';
+
 describe('CartContext', () => {
   it('does not exceed stock when adding', () => {
     let api: ReturnType<typeof useCart> | null = null;
@@ -56,10 +61,15 @@ describe('CartContext', () => {
       return null;
     };
     render(wrap(<Probe />));
-    api!.addToCart({ id: 'x', name: 'x', price: 1, imageUrl: '', stockQuantity: 2 }, 5);
+    act(() => {
+      api!.addToCart({ id: 'x', name: 'x', price: 1, imageUrl: '', stockQuantity: 2 }, 5);
+    });
     // 5 > 2 → should be ignored
     expect(api!.items.find((i) => i.id === 'x')).toBeUndefined();
-    api!.addToCart({ id: 'x', name: 'x', price: 1, imageUrl: '', stockQuantity: 2 }, 2);
+    
+    act(() => {
+      api!.addToCart({ id: 'x', name: 'x', price: 1, imageUrl: '', stockQuantity: 2 }, 2);
+    });
     expect(api!.items[0].quantity).toBe(2);
   });
 });

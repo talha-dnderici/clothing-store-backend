@@ -4,12 +4,14 @@ import { Star, ShoppingCart, ArrowLeft, Check, Shield, Truck, Package, AlertTria
 import { api } from '../utils/api';
 import { mapProduct } from '../utils/mapProduct';
 import { useCart } from '../context/CartContext';
+import { useToast } from '../context/ToastContext';
 import { QuantitySelector } from '../components/QuantitySelector';
 import { CatalogProduct } from '../types/catalog';
 
 export default function ProductDetail() {
   const { id } = useParams();
   const { addToCart } = useCart();
+  const { showToast } = useToast();
   const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -124,6 +126,12 @@ export default function ProductDetail() {
     }, quantity);
 
     if (success) {
+      showToast({
+        title: `${quantity} × added to cart`,
+        description: product.name,
+        image: product.imageUrl,
+        variant: 'success',
+      });
       setAddedFeedback(true);
       setTimeout(() => setAddedFeedback(false), 2000);
       setQuantity(1);
@@ -157,7 +165,7 @@ export default function ProductDetail() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 lg:py-12 pb-28 lg:pb-12">
       <Link
         to="/"
         className="inline-flex items-center text-sm font-medium text-gray-500 hover:text-black mb-8 transition-colors group"
@@ -166,11 +174,19 @@ export default function ProductDetail() {
         Back to Products
       </Link>
 
+      <nav className="mb-6 flex items-center gap-2 text-xs text-gray-500 font-medium">
+        <Link to="/" className="hover:text-black transition-colors">Home</Link>
+        <span>/</span>
+        <Link to="/" className="hover:text-black transition-colors">{product.category}</Link>
+        <span>/</span>
+        <span className="text-gray-900 truncate">{product.name}</span>
+      </nav>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
         {/* Left: Images */}
         <div className="flex flex-col gap-4">
-          <div className="aspect-[4/5] w-full overflow-hidden rounded-2xl bg-gray-100 shadow-sm border border-gray-100">
-            <img src={activeImage} alt={product.name} className="h-full w-full object-cover object-center transition-opacity duration-300" />
+          <div className="aspect-[4/5] w-full overflow-hidden rounded-2xl bg-gray-100 shadow-sm border border-gray-100 group">
+            <img src={activeImage} alt={product.name} className="h-full w-full object-cover object-center transition-transform duration-700 group-hover:scale-105" />
           </div>
           <div className="grid grid-cols-3 gap-4">
             {thumbnails.map((thumb, idx) => (
@@ -382,6 +398,26 @@ export default function ProductDetail() {
               </div>
             ))
           )}
+        </div>
+      </div>
+
+      {/* Mobile sticky bottom CTA */}
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-200 px-4 py-3 shadow-2xl">
+        <div className="flex items-center gap-3">
+          <div className="flex-1">
+            <p className="text-xs text-gray-500">Total</p>
+            <p className="text-lg font-bold text-gray-900 tabular-nums">
+              ${(displayPrice * quantity).toFixed(2)}
+            </p>
+          </div>
+          <button
+            onClick={handleAddToCart}
+            disabled={isOutOfStock}
+            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-black py-3 px-4 text-sm font-bold text-white active:scale-95 transition-transform disabled:bg-gray-200 disabled:text-gray-500"
+          >
+            <ShoppingCart size={16} />
+            {isOutOfStock ? 'Out of Stock' : 'Add to Cart'}
+          </button>
         </div>
       </div>
     </div>

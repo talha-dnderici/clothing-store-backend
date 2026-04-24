@@ -1,8 +1,25 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { CreditCard, Lock } from 'lucide-react';
+import { CreditCard, Lock, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../utils/api';
+
+function formatCardNumber(v: string) {
+  return v.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim();
+}
+function formatExpiry(v: string) {
+  const digits = v.replace(/\D/g, '').slice(0, 4);
+  if (digits.length < 3) return digits;
+  return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+}
+function detectCardBrand(num: string): 'visa' | 'mastercard' | 'amex' | 'unknown' {
+  const n = num.replace(/\s/g, '');
+  if (/^4/.test(n)) return 'visa';
+  if (/^5[1-5]/.test(n)) return 'mastercard';
+  if (/^3[47]/.test(n)) return 'amex';
+  return 'unknown';
+}
 
 /**
  * FE-9 (SCRUM-37) — Mock checkout / payment interface.
@@ -29,6 +46,11 @@ export default function Checkout() {
   const update = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
+  const updateCardNumber = (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((p) => ({ ...p, cardNumber: formatCardNumber(e.target.value) }));
+  const updateExpiry = (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((p) => ({ ...p, expiry: formatExpiry(e.target.value) }));
+
   const validate = (): string | null => {
     if (!form.fullName.trim()) return 'Full name is required';
     if (!form.address.trim()) return 'Address is required';
@@ -49,30 +71,39 @@ export default function Checkout() {
     setError(null);
     setProcessing(true);
 
-    // Mock network delay
-    await new Promise((r) => setTimeout(r, 700));
+    try {
+      const token = localStorage.getItem('token') || '';
+      const orderRes = await api.checkout(token, {
+        deliveryAddress: `${form.address}, ${form.city} ${form.postalCode}`.trim(),
+      });
+      const data = orderRes.data;
 
-    const invoice = {
-      orderId: `MOCK-${Date.now().toString(36).toUpperCase()}`,
-      placedAt: new Date().toISOString(),
-      items: items.map((i) => ({
-        id: i.id,
-        name: i.name,
-        price: i.price,
-        quantity: i.quantity,
-        subtotal: i.price * i.quantity,
-      })),
-      total: totalPrice,
-      customer: {
-        name: form.fullName,
-        email: user?.email ?? 'guest@example.com',
-        address: `${form.address}, ${form.city} ${form.postalCode}`.trim(),
-      },
-      maskedCard: `**** **** **** ${form.cardNumber.slice(-4)}`,
-    };
+      const invoice = {
+        orderId: data.id || data._id || `ORD-${Date.now().toString(36).toUpperCase()}`,
+        placedAt: data.createdAt || new Date().toISOString(),
+        items: items.map((i) => ({
+          id: i.id,
+          name: i.name,
+          price: i.price,
+          quantity: i.quantity,
+          subtotal: i.price * i.quantity,
+        })),
+        total: totalPrice,
+        customer: {
+          name: form.fullName,
+          email: user?.email ?? 'guest@example.com',
+          address: `${form.address}, ${form.city} ${form.postalCode}`.trim(),
+        },
+        maskedCard: `**** **** **** ${form.cardNumber.slice(-4)}`,
+      };
 
-    clearCart();
-    navigate('/invoice', { state: { invoice } });
+      clearCart();
+      navigate('/invoice', { state: { invoice } });
+    } catch (err: any) {
+      setError(err.message || 'Payment failed. Please try again.');
+    } finally {
+      setProcessing(false);
+    }
   };
 
   if (items.length === 0) {
@@ -88,6 +119,14 @@ export default function Checkout() {
       <h1 className="text-3xl font-bold text-gray-900 mb-8 flex items-center gap-2">
         <Lock size={22} /> Secure Checkout
       </h1>
+
+      <div className="mb-8 flex items-center gap-3 text-sm">
+        <StepDot label="Cart" done />
+        <StepLine />
+        <StepDot label="Payment" active />
+        <StepLine />
+        <StepDot label="Confirmation" />
+      </div>
 
       <form onSubmit={handleSubmit} className="grid gap-8 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-8">
@@ -105,19 +144,26 @@ export default function Checkout() {
             <h2 className="font-bold text-gray-900 flex items-center gap-2">
               <CreditCard size={18} /> Payment Details
             </h2>
-            <Input
-              label="Card number"
-              value={form.cardNumber}
-              onChange={update('cardNumber')}
-              name="cardNumber"
-              placeholder="1234 1234 1234 1234"
-              maxLength={19}
-            />
+            <label className="block text-sm relative">
+              <span className="text-gray-600 font-medium">Card number</span>
+              <input
+                type="text"
+                name="cardNumber"
+                value={form.cardNumber}
+                onChange={updateCardNumber}
+                placeholder="1234 1234 1234 1234"
+                maxLength={19}
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium tabular-nums focus:outline-none focus:ring-2 focus:ring-black pr-16"
+              />
+              <span className="absolute right-3 top-8 text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                {detectCardBrand(form.cardNumber) !== 'unknown' ? detectCardBrand(form.cardNumber) : ''}
+              </span>
+            </label>
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
                 label="Expiry (MM/YY)"
                 value={form.expiry}
-                onChange={update('expiry')}
+                onChange={updateExpiry}
                 name="expiry"
                 placeholder="04/28"
                 maxLength={5}
@@ -170,6 +216,11 @@ export default function Checkout() {
           >
             {processing ? 'Processing…' : `Pay $${totalPrice.toFixed(2)}`}
           </button>
+
+          <div className="flex items-center justify-center gap-1.5 text-xs text-gray-500 pt-2">
+            <ShieldCheck size={14} className="text-green-600" />
+            <span>256-bit SSL encrypted</span>
+          </div>
         </aside>
       </form>
     </div>
@@ -198,4 +249,23 @@ function Input(props: {
       />
     </label>
   );
+}
+
+function StepDot({ label, active, done }: { label: string; active?: boolean; done?: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+        done ? 'bg-green-600 text-white' : active ? 'bg-black text-white' : 'bg-gray-200 text-gray-500'
+      }`}>
+        {done ? <CheckCircle2 size={14} /> : null}
+      </div>
+      <span className={`font-semibold ${active ? 'text-black' : done ? 'text-green-700' : 'text-gray-400'}`}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function StepLine() {
+  return <div className="flex-1 h-px bg-gray-200" />;
 }

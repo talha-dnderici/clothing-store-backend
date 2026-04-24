@@ -2,13 +2,24 @@
  * FE-11 — UI test: Checkout form validation and invoice handoff.
  */
 import React from 'react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import Checkout from '../pages/Checkout';
 import Invoice from '../pages/Invoice';
 import { CartProvider, useCart } from '../context/CartContext';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { api } from '../utils/api';
+
+Object.defineProperty(window, 'localStorage', {
+  value: { getItem: vi.fn(() => 'fake-token') },
+});
+
+vi.mock('../utils/api', () => ({
+  api: {
+    checkout: vi.fn(),
+  }
+}));
 
 const Seed = () => {
   const { addToCart } = useCart();
@@ -59,7 +70,7 @@ describe('Checkout — FE-9 & FE-10', () => {
     expect(await screen.findByTestId('checkout-error')).toHaveTextContent(/16 digits/i);
   });
 
-  it('navigates to invoice after a valid mock payment', async () => {
+  it('navigates to invoice after a valid real checkout', async () => {
     renderCheckout();
     await screen.findByTestId('checkout-page');
     fill('fullName', 'Jane Doe');
@@ -69,6 +80,11 @@ describe('Checkout — FE-9 & FE-10', () => {
     fill('cardNumber', '4242424242424242');
     fill('expiry', '04/28');
     fill('cvc', '123');
+
+    (api.checkout as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { id: 'ORD-1234' }
+    });
+
     fireEvent.click(screen.getByTestId('pay-btn'));
 
     await waitFor(
@@ -76,6 +92,6 @@ describe('Checkout — FE-9 & FE-10', () => {
       { timeout: 2000 },
     );
     expect(screen.getByTestId('invoice-total')).toHaveTextContent(/100\.00/);
-    expect(screen.getByTestId('invoice-order-id').textContent).toMatch(/MOCK-/);
+    expect(screen.getByTestId('invoice-order-id').textContent).toMatch(/ORD-/);
   });
 });
