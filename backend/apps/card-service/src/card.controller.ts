@@ -4,6 +4,7 @@ import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { CartUserDto } from './dto/cart-user.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCardDto } from './dto/create-card.dto';
+import { OrderIdDto } from './dto/order-id.dto';
 import { RemoveCartItemDto } from './dto/remove-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
@@ -58,6 +59,11 @@ export class CardController {
   @MessagePattern('card.findOneOrder')
   findOneOrder(@Payload() id: string) {
     return this.cardService.findOneOrder(id);
+  }
+
+  @MessagePattern('card.findInvoiceForOrder')
+  findInvoiceForOrder(@Payload() payload: OrderIdDto) {
+    return this.cardService.findInvoiceForOrder(payload);
   }
 
   @MessagePattern('card.updateOrderStatus')

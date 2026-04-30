@@ -19,12 +19,15 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { ClientProxy } from '@nestjs/microservices';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { firstValueFrom } from 'rxjs';
 import { SERVICE_TOKENS } from '@app/common/constants/service-tokens';
 import { LoginDto } from '../../login-service/src/dto/login.dto';
 import { UpdateSessionDto } from '../../login-service/src/dto/update-session.dto';
 import { CreateCategoryDto } from '../../main-service/src/dto/create-category.dto';
+import { CreateCommentDto } from '../../main-service/src/dto/create-comment.dto';
+import { ListCommentsDto } from '../../main-service/src/dto/list-comments.dto';
+import { UpdateCommentApprovalDto } from '../../main-service/src/dto/update-comment-approval.dto';
 import { CreateUserDto } from '../../register-service/src/dto/create-user.dto';
 import { RegisterUserDto } from '../../register-service/src/dto/register-user.dto';
 import { UpdateUserDto } from '../../register-service/src/dto/update-user.dto';
@@ -48,6 +51,21 @@ class CheckoutRequestDto {
 class UpdateOrderStatusRequestDto {
   @IsIn(['processing', 'in-transit', 'delivered'])
   status!: 'processing' | 'in-transit' | 'delivered';
+}
+
+class CreateCommentRequestDto {
+  @IsString()
+  content!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+}
+
+class UpdateCommentApprovalRequestDto {
+  @IsIn(['approved', 'rejected'])
+  approvalStatus!: 'approved' | 'rejected';
 }
 
 type AuthenticatedUser = {
@@ -176,6 +194,15 @@ export class AppController {
     }
   }
 
+  private async requireUserProfile(userId: string) {
+    return this.sendMessage<{
+      id: string;
+      name: string;
+      email: string;
+      address?: string;
+    }>(this.registerClient, 'register.findOneUser', userId);
+  }
+
   @Get()
   getHealth() {
     return {
@@ -269,6 +296,46 @@ export class AppController {
     return this.sendMessage(this.mainClient, 'main.findOneProduct', id);
   }
 
+  @Post('products/:id/comments')
+  @HttpCode(HttpStatus.CREATED)
+  async createComment(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: CreateCommentRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const user = await this.requireUserProfile(authUser.sub);
+
+    return this.sendMessage<CreateCommentDto>(this.mainClient, 'main.createComment', {
+      productId: id,
+      customerId: authUser.sub,
+      customerName: user.name,
+      content: dto.content,
+      rating: dto.rating,
+    });
+  }
+
+  @Get('products/:id/comments')
+  async findProductComments(
+    @Param('id') id: string,
+    @Query('approvalStatus') approvalStatus?: ListCommentsDto['approvalStatus'],
+    @Headers('authorization') authorization?: string,
+  ) {
+    if (!approvalStatus) {
+      return this.sendMessage(this.mainClient, 'main.findComments', {
+        productId: id,
+      });
+    }
+
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.findComments', {
+      productId: id,
+      approvalStatus,
+    });
+  }
+
   @Get('categories/:id')
   findOneCategory(@Param('id') id: string) {
     return this.sendMessage(this.mainClient, 'main.findOneCategory', id);
@@ -333,11 +400,7 @@ export class AppController {
     @Body() dto: CheckoutRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    const user = await this.sendMessage<{
-      id: string;
-      email: string;
-      address?: string;
-    }>(this.registerClient, 'register.findOneUser', authUser.sub);
+    const user = await this.requireUserProfile(authUser.sub);
     const deliveryAddress = dto.deliveryAddress?.trim() || user.address?.trim();
 
     if (!deliveryAddress) {
@@ -381,6 +444,27 @@ export class AppController {
     return order;
   }
 
+  @Get('orders/:id/invoice')
+  async findOrderInvoice(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const order = await this.sendMessage<{ customerId: string }>(
+      this.cardClient,
+      'card.findOneOrder',
+      id,
+    );
+
+    if (order.customerId !== authUser.sub && authUser.role !== 'productManager') {
+      throw new ForbiddenException('You cannot view this invoice');
+    }
+
+    return this.sendMessage(this.cardClient, 'card.findInvoiceForOrder', {
+      orderId: id,
+    });
+  }
+
   @Patch('orders/:id/status')
   async updateOrderStatus(
     @Headers('authorization') authorization: string | undefined,
@@ -419,6 +503,26 @@ export class AppController {
       deliveryId: id,
       status: dto.status,
     });
+  }
+
+  @Patch('comments/:id/approval')
+  async updateCommentApproval(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateCommentApprovalRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
+    return this.sendMessage<UpdateCommentApprovalDto>(
+      this.mainClient,
+      'main.updateCommentApproval',
+      {
+        commentId: id,
+        approvalStatus: dto.approvalStatus,
+        reviewedBy: authUser.sub,
+      },
+    );
   }
 
   @Get('deliveries/my')

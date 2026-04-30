@@ -8,9 +8,13 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, SortOrder } from 'mongoose';
+import { Comment, CommentDocument } from '@app/common/database/schemas/comment.schema';
 import { CreateCategoryDto } from './dto/create-category.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ListProductsDto } from './dto/list-products.dto';
+import { ListCommentsDto } from './dto/list-comments.dto';
+import { UpdateCommentApprovalDto } from './dto/update-comment-approval.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Category, CategoryDocument } from './schemas/category.schema';
@@ -23,6 +27,8 @@ export class MainService {
     private readonly productModel: Model<ProductDocument>,
     @InjectModel(Category.name)
     private readonly categoryModel: Model<CategoryDocument>,
+    @InjectModel(Comment.name)
+    private readonly commentModel: Model<CommentDocument>,
   ) {}
 
   private handleServiceError(error: unknown, fallbackMessage: string): never {
@@ -44,6 +50,14 @@ export class MainService {
 
   private sanitizeCategory(category: CategoryDocument) {
     const object = category.toObject();
+    return {
+      id: object._id.toString(),
+      ...object,
+    };
+  }
+
+  private sanitizeComment(comment: CommentDocument) {
+    const object = comment.toObject();
     return {
       id: object._id.toString(),
       ...object,
@@ -424,6 +438,69 @@ export class MainService {
       };
     } catch (error) {
       this.handleServiceError(error, 'Category could not be deleted');
+    }
+  }
+
+  async createComment(payload: CreateCommentDto) {
+    try {
+      const product = await this.productModel.findById(payload.productId).exec();
+
+      if (!product) {
+        throw new NotFoundException('Product not found');
+      }
+
+      const comment = await this.commentModel.create({
+        ...payload,
+        content: payload.content.trim(),
+        customerName: payload.customerName.trim(),
+        approvalStatus: 'pending',
+        reviewedBy: '',
+      });
+
+      return this.sanitizeComment(comment);
+    } catch (error) {
+      this.handleServiceError(error, 'Comment could not be created');
+    }
+  }
+
+  async findComments(payload: ListCommentsDto) {
+    try {
+      const filter: Record<string, unknown> = {
+        productId: payload.productId,
+      };
+
+      if (payload.approvalStatus) {
+        filter.approvalStatus = payload.approvalStatus;
+      } else {
+        filter.approvalStatus = 'approved';
+      }
+
+      const comments = await this.commentModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return comments.map((comment) => this.sanitizeComment(comment));
+    } catch (error) {
+      this.handleServiceError(error, 'Comments could not be listed');
+    }
+  }
+
+  async updateCommentApproval(payload: UpdateCommentApprovalDto) {
+    try {
+      const comment = await this.commentModel.findById(payload.commentId).exec();
+
+      if (!comment) {
+        throw new NotFoundException('Comment not found');
+      }
+
+      comment.approvalStatus = payload.approvalStatus;
+      comment.reviewedBy = payload.reviewedBy.trim();
+      await comment.save();
+
+      return this.sanitizeComment(comment);
+    } catch (error) {
+      this.handleServiceError(error, 'Comment approval could not be updated');
     }
   }
 }

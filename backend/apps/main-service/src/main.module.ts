@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { createMongoConfig } from '@app/common/database/mongo.config';
+import { Comment, CommentSchema } from '@app/common/database/schemas/comment.schema';
 import { MainController } from './main.controller';
 import { MainService } from './main.service';
 import { Category, CategorySchema } from './schemas/category.schema';
@@ -20,6 +21,7 @@ import { Product, ProductSchema } from './schemas/product.schema';
     MongooseModule.forFeature([
       { name: Product.name, schema: ProductSchema },
       { name: Category.name, schema: CategorySchema },
+      { name: Comment.name, schema: CommentSchema },
     ]),
   ],
   controllers: [MainController],

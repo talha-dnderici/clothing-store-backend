@@ -1,8 +1,11 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { CreateCategoryDto } from './dto/create-category.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ListProductsDto } from './dto/list-products.dto';
+import { ListCommentsDto } from './dto/list-comments.dto';
+import { UpdateCommentApprovalDto } from './dto/update-comment-approval.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { MainService } from './main.service';
@@ -59,5 +62,20 @@ export class MainController {
   @MessagePattern('main.deleteCategory')
   deleteCategory(@Payload() id: string) {
     return this.mainService.deleteCategory(id);
+  }
+
+  @MessagePattern('main.createComment')
+  createComment(@Payload() payload: CreateCommentDto) {
+    return this.mainService.createComment(payload);
+  }
+
+  @MessagePattern('main.findComments')
+  findComments(@Payload() payload: ListCommentsDto) {
+    return this.mainService.findComments(payload);
+  }
+
+  @MessagePattern('main.updateCommentApproval')
+  updateCommentApproval(@Payload() payload: UpdateCommentApprovalDto) {
+    return this.mainService.updateCommentApproval(payload);
   }
 }

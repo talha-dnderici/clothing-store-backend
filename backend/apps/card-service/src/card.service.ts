@@ -12,10 +12,12 @@ import {
   Delivery,
   DeliveryDocument,
 } from '@app/common/database/schemas/delivery.schema';
+import { Invoice, InvoiceDocument } from '@app/common/database/schemas/invoice.schema';
 import { Order, OrderDocument } from '@app/common/database/schemas/order.schema';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCardDto } from './dto/create-card.dto';
+import { OrderIdDto } from './dto/order-id.dto';
 import { RemoveCartItemDto } from './dto/remove-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
@@ -38,6 +40,8 @@ export class CardService {
     private readonly orderModel: Model<OrderDocument>,
     @InjectModel(Delivery.name)
     private readonly deliveryModel: Model<DeliveryDocument>,
+    @InjectModel(Invoice.name)
+    private readonly invoiceModel: Model<InvoiceDocument>,
   ) {}
 
   private readonly deliveryStatusOrder = ['processing', 'in-transit', 'delivered'] as const;
@@ -86,6 +90,14 @@ export class CardService {
     };
   }
 
+  private sanitizeInvoice(invoice: InvoiceDocument) {
+    const object = invoice.toObject();
+    return {
+      id: object._id.toString(),
+      ...object,
+    };
+  }
+
   private normalizeItemText(value?: string) {
     return value?.trim() ?? '';
   }
@@ -118,6 +130,63 @@ export class CardService {
     }
 
     return 'processing';
+  }
+
+  private escapePdfText(value: string) {
+    return value.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  }
+
+  private createInvoicePdfDataUri(input: {
+    invoiceNumber: string;
+    customerEmail: string;
+    deliveryAddress: string;
+    totalAmount: number;
+    items: Array<{ productName: string; quantity: number; unitPrice: number }>;
+  }) {
+    const lines = [
+      `Invoice ${input.invoiceNumber}`,
+      `Customer: ${input.customerEmail}`,
+      `Address: ${input.deliveryAddress}`,
+      `Total: $${input.totalAmount.toFixed(2)}`,
+      ...input.items.map(
+        (item) =>
+          `${item.productName} x${item.quantity} @ $${item.unitPrice.toFixed(2)}`,
+      ),
+    ];
+
+    const contentLines = ['BT', '/F1 12 Tf'];
+    let y = 780;
+    for (const line of lines) {
+      contentLines.push(`1 0 0 1 40 ${y} Tm (${this.escapePdfText(line)}) Tj`);
+      y -= 18;
+    }
+    contentLines.push('ET');
+
+    const stream = contentLines.join('\n');
+    const objects = [
+      '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj',
+      '2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj',
+      '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj',
+      `4 0 obj\n<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream\nendobj`,
+      '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj',
+    ];
+
+    let pdf = '%PDF-1.4\n';
+    const offsets = [0];
+    for (const object of objects) {
+      offsets.push(Buffer.byteLength(pdf, 'utf8'));
+      pdf += `${object}\n`;
+    }
+
+    const xrefStart = Buffer.byteLength(pdf, 'utf8');
+    pdf += `xref\n0 ${objects.length + 1}\n`;
+    pdf += '0000000000 65535 f \n';
+    for (let index = 1; index < offsets.length; index += 1) {
+      pdf += `${offsets[index].toString().padStart(10, '0')} 00000 n \n`;
+    }
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+
+    return `data:application/pdf;base64,${Buffer.from(pdf, 'utf8').toString('base64')}`;
   }
 
   private isSameItem(
@@ -426,6 +495,7 @@ export class CardService {
     const decrementedStock: Array<{ productId: string; quantity: number }> = [];
     let createdOrder: OrderDocument | null = null;
     let claimedCard: CardDocument | null = null;
+    let createdInvoice: InvoiceDocument | null = null;
 
     try {
       const userId = payload.userId.trim();
@@ -529,6 +599,7 @@ export class CardService {
         const discountMultiplier = 1 - item.discountRate / 100;
         return sum + item.unitPrice * item.quantity * discountMultiplier;
       }, 0);
+      const roundedTotalPrice = Math.round(totalPrice * 100) / 100;
 
       createdOrder = await this.orderModel.create({
         customerId: userId,
@@ -536,9 +607,35 @@ export class CardService {
         items: orderItems,
         deliveryAddress,
         status: 'processing',
-        totalPrice: Math.round(totalPrice * 100) / 100,
+        totalPrice: roundedTotalPrice,
         paymentConfirmed: true,
       });
+
+      const invoiceNumber = `INV-${createdOrder._id.toString().slice(-8).toUpperCase()}`;
+      const pdfUrl = this.createInvoicePdfDataUri({
+        invoiceNumber,
+        customerEmail: payload.customerEmail,
+        deliveryAddress,
+        totalAmount: roundedTotalPrice,
+        items: orderItems.map((item) => ({
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        })),
+      });
+
+      createdInvoice = await this.invoiceModel.create({
+        invoiceNumber,
+        orderId: createdOrder._id.toString(),
+        customerId: userId,
+        customerEmail: payload.customerEmail,
+        totalAmount: roundedTotalPrice,
+        pdfUrl,
+        emailedToCustomer: true,
+      });
+
+      createdOrder.invoiceId = createdInvoice._id.toString();
+      await createdOrder.save();
 
       await this.deliveryModel.insertMany(
         orderItems.map((item, index) => ({
@@ -563,6 +660,7 @@ export class CardService {
 
       return {
         order: this.sanitizeOrder(createdOrder),
+        invoice: this.sanitizeInvoice(createdInvoice),
         deliveryStatus: 'processing',
       };
     } catch (error) {
@@ -587,6 +685,9 @@ export class CardService {
         await this.deliveryModel
           .deleteMany({ orderId: createdOrder._id.toString() })
           .exec();
+        if (createdInvoice) {
+          await this.invoiceModel.deleteOne({ _id: createdInvoice._id }).exec();
+        }
         await this.orderModel.deleteOne({ _id: createdOrder._id }).exec();
 
         if (claimedCard) {
@@ -711,6 +812,22 @@ export class CardService {
       return deliveries.map((delivery) => this.sanitizeDelivery(delivery));
     } catch (error) {
       this.handleServiceError(error, 'Deliveries could not be listed');
+    }
+  }
+
+  async findInvoiceForOrder(payload: OrderIdDto) {
+    try {
+      const invoice = await this.invoiceModel
+        .findOne({ orderId: payload.orderId })
+        .exec();
+
+      if (!invoice) {
+        throw new NotFoundException('Invoice not found');
+      }
+
+      return this.sanitizeInvoice(invoice);
+    } catch (error) {
+      this.handleServiceError(error, 'Invoice could not be fetched');
     }
   }
 
