@@ -1,28 +1,84 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../utils/api';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
+  const redirectTo = new URLSearchParams(location.search).get('redirect') || '/';
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSubmitting(true);
+    setError(null);
     const formData = new FormData(e.currentTarget);
-    const email = formData.get('email') as string;
-    const fullName = formData.get('fullName') as string;
-    setTimeout(() => {
-      if (email) {
-        login(email, fullName);
-        navigate('/');
+    const email = String(formData.get('email') || '').trim();
+    const fullName = String(formData.get('fullName') || '').trim();
+    const taxId = String(formData.get('taxId') || '').trim();
+    const address = String(formData.get('address') || '').trim();
+
+    try {
+      if (isLogin) {
+        const response = await api.login({ email, password });
+        const data = response.data as {
+          token: string;
+          user?: { id?: string; name?: string; email?: string; role?: string };
+        };
+
+        login(
+          {
+            id: data.user?.id,
+            name: data.user?.name || fullName || email.split('@')[0] || 'User',
+            email: data.user?.email || email,
+            role: data.user?.role,
+          },
+          data.token,
+        );
+      } else {
+        await api.register({
+          name: fullName,
+          email,
+          password,
+          taxId,
+          address,
+        });
+
+        const response = await api.login({ email, password });
+        const data = response.data as {
+          token: string;
+          user?: { id?: string; name?: string; email?: string; role?: string };
+        };
+
+        login(
+          {
+            id: data.user?.id,
+            name: data.user?.name || fullName || email.split('@')[0] || 'User',
+            email: data.user?.email || email,
+            role: data.user?.role,
+          },
+          data.token,
+        );
       }
+
+      navigate(redirectTo);
+    } catch (err: any) {
+      const rawMessage = String(err?.message || '').trim();
+      const friendlyMessage =
+        isLogin && (!rawMessage || rawMessage.toLowerCase() === 'internal server error')
+          ? 'Invalid email or password.'
+          : rawMessage || 'Authentication failed. Please try again.';
+
+      setError(friendlyMessage);
+    } finally {
       setSubmitting(false);
-    }, 500);
+    }
   };
 
   const passwordStrength = (() => {
@@ -188,6 +244,12 @@ export default function Auth() {
                   <a href="#" className="text-sm font-medium text-gray-600 hover:text-black hover:underline underline-offset-4 transition-colors">
                     Forgot Password?
                   </a>
+                </div>
+              )}
+
+              {error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
                 </div>
               )}
 
