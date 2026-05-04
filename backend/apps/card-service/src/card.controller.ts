@@ -4,7 +4,6 @@ import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { CartUserDto } from './dto/cart-user.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCardDto } from './dto/create-card.dto';
-import { OrderIdDto } from './dto/order-id.dto';
 import { RemoveCartItemDto } from './dto/remove-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
@@ -56,14 +55,39 @@ export class CardController {
     return this.cardService.findOrdersForUser(payload.userId);
   }
 
+  @MessagePattern('card.findAllOrders')
+  findAllOrders() {
+    return this.cardService.findAllOrders();
+  }
+
+  @MessagePattern('card.findOrderDeliveryStatusForUser')
+  findOrderDeliveryStatusForUser(@Payload() payload: CartUserDto) {
+    return this.cardService.findOrderDeliveryStatusForUser(payload.userId);
+  }
+
   @MessagePattern('card.findOneOrder')
   findOneOrder(@Payload() id: string) {
     return this.cardService.findOneOrder(id);
   }
 
-  @MessagePattern('card.findInvoiceForOrder')
-  findInvoiceForOrder(@Payload() payload: OrderIdDto) {
-    return this.cardService.findInvoiceForOrder(payload);
+  @MessagePattern('card.findOrderInvoice')
+  findOrderInvoice(@Payload() id: string) {
+    return this.cardService.findOrderInvoice(id);
+  }
+
+  @MessagePattern('card.findOrderInvoicePdf')
+  findOrderInvoicePdf(@Payload() id: string) {
+    return this.cardService.findOrderInvoicePdf(id);
+  }
+
+  @MessagePattern('card.emailOrderInvoice')
+  emailOrderInvoice(@Payload() id: string) {
+    return this.cardService.emailOrderInvoice(id);
+  }
+
+  @MessagePattern('card.mockPayment')
+  mockPayment(@Payload() payload: { userId: string; amount?: number; orderId?: string }) {
+    return this.cardService.mockPayment(payload);
   }
 
   @MessagePattern('card.updateOrderStatus')

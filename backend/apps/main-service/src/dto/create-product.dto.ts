@@ -57,6 +57,10 @@ export class CreateProductDto {
   discountRate?: number;
 
   @IsOptional()
+  @IsBoolean()
+  discountActive?: boolean;
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   popularity?: number;

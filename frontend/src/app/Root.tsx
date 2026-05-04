@@ -57,10 +57,52 @@ export default function Root() {
         <Outlet context={{ searchQuery, activeCategory, categories }} />
       </main>
 
-      <footer className="border-t border-gray-200 bg-white py-12 mt-auto">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center text-sm text-gray-500 flex flex-col items-center justify-center gap-4">
-          <div className="text-xl font-bold tracking-tight text-gray-900">AURA.</div>
-          <p>&copy; {new Date().getFullYear()} AURA Clothing. All rights reserved.</p>
+      <footer className="border-t border-gray-200 bg-white mt-auto">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-14">
+          <div className="grid grid-cols-2 gap-8 md:grid-cols-4 mb-10">
+            <div className="col-span-2">
+              <div className="text-2xl font-extrabold tracking-tight text-gray-900 mb-3">AURA.</div>
+              <p className="text-sm text-gray-500 max-w-xs mb-4">
+                Premium clothing for people who wear their own story.
+              </p>
+              <form onSubmit={(e) => e.preventDefault()} className="flex max-w-sm gap-2">
+                <input
+                  type="email"
+                  placeholder="your@email.com"
+                  className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm outline-none focus:border-black focus:bg-white focus:ring-2 focus:ring-black/10 transition-all"
+                />
+                <button className="rounded-full bg-black px-5 py-2 text-sm font-bold text-white hover:bg-gray-800 active:scale-95 transition-all">
+                  Join
+                </button>
+              </form>
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-gray-900 mb-3">Shop</p>
+              <ul className="space-y-2 text-sm text-gray-600">
+                <li><a href="#" className="hover:text-black transition-colors">New Arrivals</a></li>
+                <li><a href="#" className="hover:text-black transition-colors">Women</a></li>
+                <li><a href="#" className="hover:text-black transition-colors">Men</a></li>
+                <li><a href="#" className="hover:text-black transition-colors">Sale</a></li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-gray-900 mb-3">Help</p>
+              <ul className="space-y-2 text-sm text-gray-600">
+                <li><a href="#" className="hover:text-black transition-colors">Shipping</a></li>
+                <li><a href="#" className="hover:text-black transition-colors">Returns</a></li>
+                <li><a href="#" className="hover:text-black transition-colors">Size guide</a></li>
+                <li><a href="#" className="hover:text-black transition-colors">Contact</a></li>
+              </ul>
+            </div>
+          </div>
+          <div className="pt-8 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
+            <p>&copy; {new Date().getFullYear()} AURA Clothing. All rights reserved.</p>
+            <div className="flex gap-5">
+              <a href="#" className="hover:text-black transition-colors">Privacy</a>
+              <a href="#" className="hover:text-black transition-colors">Terms</a>
+              <a href="#" className="hover:text-black transition-colors">Cookies</a>
+            </div>
+          </div>
         </div>
       </footer>
     </div>

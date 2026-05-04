@@ -17,14 +17,36 @@ export class Invoice {
   @Prop({ required: true, lowercase: true, trim: true })
   customerEmail!: string;
 
+  @Prop({ default: '', lowercase: true, trim: true })
+  recipientEmail!: string;
+
   @Prop({ required: true, min: 0 })
   totalAmount!: number;
 
   @Prop({ default: '' })
   pdfUrl!: string;
 
+  @Prop({ default: '' })
+  pdfBase64!: string;
+
+  @Prop({ default: '' })
+  pdfFileName!: string;
+
   @Prop({ default: false })
   emailedToCustomer!: boolean;
+
+  @Prop({
+    type: String,
+    enum: ['pending', 'sending', 'sent', 'failed', 'skipped'],
+    default: 'pending',
+  })
+  emailStatus!: 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';
+
+  @Prop({ default: '' })
+  emailError!: string;
+
+  @Prop({ type: Date, default: null })
+  emailedAt!: Date | null;
 }
 
 export const InvoiceSchema = SchemaFactory.createForClass(Invoice);

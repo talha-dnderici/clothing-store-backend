@@ -20,6 +20,7 @@ COPY package*.json ./
 RUN npm install --omit=dev
 
 COPY --from=builder /usr/src/app/dist ./dist
+COPY scripts ./scripts
 COPY .env.example ./.env
 
 CMD ["sh", "-c", "npm run start:prod:$APP_NAME"]

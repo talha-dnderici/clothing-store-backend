@@ -35,6 +35,9 @@ export class Product {
   @Prop({ default: 0, min: 0, max: 100 })
   discountRate!: number;
 
+  @Prop({ default: false })
+  discountActive!: boolean;
+
   @Prop({ default: 0, min: 0 })
   popularity!: number;
 

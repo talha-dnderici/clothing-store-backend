@@ -1,22 +1,64 @@
 import React from 'react';
+import { ArrowRight, Sparkles } from 'lucide-react';
+import { Link } from 'react-router';
 
 export function HeroBanner() {
   return (
-    <section className="relative w-full overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-20 sm:py-28 flex flex-col items-center text-center gap-6">
-        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight leading-tight">
-          Discover <span className="bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">AURA</span>
-        </h1>
-        <p className="max-w-xl text-lg text-gray-300 leading-relaxed">
-          Premium clothing designed for the modern individual. Timeless style meets everyday comfort.
-        </p>
-        <a
-          href="#products"
-          className="mt-4 inline-block rounded-full bg-white text-black font-bold px-8 py-3 text-sm tracking-wide shadow-lg hover:bg-gray-100 hover:shadow-xl transition-all hover:-translate-y-0.5"
-        >
-          Shop Now
-        </a>
+    <>
+      <section className="relative w-full overflow-hidden bg-[#0a0a0a] text-white">
+        <img
+          src="https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1920&q=80"
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover opacity-60"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/20" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-transparent to-transparent" />
+
+        <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-24 sm:py-32 lg:py-40">
+          <div className="max-w-2xl">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 backdrop-blur-sm px-4 py-1.5 text-xs font-semibold uppercase tracking-widest">
+              <Sparkles size={12} /> New Season 2026
+            </span>
+            <h1 className="mt-6 text-5xl sm:text-7xl lg:text-8xl font-extrabold tracking-tight leading-[0.95]">
+              Wear your<br />
+              <span className="italic font-light text-white/90">aura.</span>
+            </h1>
+            <p className="mt-6 max-w-md text-base sm:text-lg text-white/70 leading-relaxed">
+              Timeless silhouettes. Modern comfort. Pieces that move with your story.
+            </p>
+            <div className="mt-10 flex flex-wrap items-center gap-4">
+              <Link
+                to="/"
+                className="group inline-flex items-center gap-2 rounded-full bg-white text-black font-bold px-8 py-4 text-sm tracking-wide shadow-2xl hover:bg-gray-100 transition-all hover:-translate-y-0.5"
+              >
+                Shop the collection
+                <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+              </Link>
+              <Link
+                to="/"
+                className="inline-flex items-center gap-2 rounded-full border border-white/30 text-white font-semibold px-8 py-4 text-sm tracking-wide hover:bg-white/10 transition-colors"
+              >
+                Explore new arrivals
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Announcement marquee */}
+      <div className="bg-black text-white text-xs font-semibold uppercase tracking-[0.2em] py-3 overflow-hidden border-b border-white/10">
+        <div className="flex gap-12 animate-[marquee_28s_linear_infinite] whitespace-nowrap">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <React.Fragment key={i}>
+              <span>✦ Free shipping over $100</span>
+              <span>✦ 30-day easy returns</span>
+              <span>✦ Crafted in Europe</span>
+              <span>✦ New season drops every Friday</span>
+              <span>✦ Carbon-neutral delivery</span>
+            </React.Fragment>
+          ))}
+        </div>
       </div>
-    </section>
+    </>
   );
 }

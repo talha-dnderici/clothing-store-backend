@@ -6,10 +6,14 @@ export interface CatalogProduct {
   description: string;
   stockQuantity: number;
   price: number;
+  effectivePrice: number;
+  discountRate: number;
+  discountActive: boolean;
   warrantyStatus: string;
   distributor: string;
   imageUrl: string;
   rating: number;
+  ratingCount: number;
   category: string;
 }
 

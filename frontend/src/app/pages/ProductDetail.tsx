@@ -4,18 +4,42 @@ import { Star, ShoppingCart, ArrowLeft, Check, Shield, Truck, Package, AlertTria
 import { api } from '../utils/api';
 import { mapProduct } from '../utils/mapProduct';
 import { useCart } from '../context/CartContext';
+import { useToast } from '../context/ToastContext';
 import { QuantitySelector } from '../components/QuantitySelector';
 import { CatalogProduct } from '../types/catalog';
 
 export default function ProductDetail() {
   const { id } = useParams();
   const { addToCart } = useCart();
+  const { showToast } = useToast();
   const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [addedFeedback, setAddedFeedback] = useState(false);
   const [activeImage, setActiveImage] = useState('');
+
+  // Review states
+  const [publicComments, setPublicComments] = useState<any[]>([]);
+  const [ratingSummary, setRatingSummary] = useState({ ratingAverage: 0, ratingCount: 0 });
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewText, setReviewText] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [reviewSuccess, setReviewSuccess] = useState('');
+
+  const fetchReviews = () => {
+    if (!id) return;
+    Promise.all([
+      api.getProductRatings(id),
+      api.getProductComments(id)
+    ])
+      .then(([ratingsRes, commentsRes]) => {
+        setRatingSummary(ratingsRes.data);
+        setPublicComments(commentsRes.data);
+      })
+      .catch((err) => console.error('Failed to load reviews:', err));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +65,8 @@ export default function ProductDetail() {
       .finally(() => {
         if (!cancelled) setIsLoading(false);
       });
+
+    fetchReviews();
 
     return () => { cancelled = true; };
   }, [id]);
@@ -82,6 +108,7 @@ export default function ProductDetail() {
 
   const isOutOfStock = product.stockQuantity === 0;
   const isLowStock = product.stockQuantity > 0 && product.stockQuantity <= 5;
+  const displayPrice = product.effectivePrice ?? product.price;
 
   const thumbnails = [
     product.imageUrl,
@@ -93,20 +120,52 @@ export default function ProductDetail() {
     const success = addToCart({
       id: product.id,
       name: product.name,
-      price: product.price,
+      price: displayPrice,
       imageUrl: product.imageUrl,
       stockQuantity: product.stockQuantity,
     }, quantity);
 
     if (success) {
+      showToast({
+        title: `${quantity} × added to cart`,
+        description: product.name,
+        image: product.imageUrl,
+        variant: 'success',
+      });
       setAddedFeedback(true);
       setTimeout(() => setAddedFeedback(false), 2000);
       setQuantity(1);
     }
   };
 
+  const submitReview = async () => {
+    if (!reviewRating || !id) return;
+    setIsSubmittingReview(true);
+    setReviewSuccess('');
+    try {
+      // Auto-authenticate as a test user
+      const loginRes = await api.login({ email: 'customer@aura.test', password: 'password123' });
+      const token = loginRes.data.token;
+
+      const payload: Record<string, unknown> = { rating: reviewRating };
+      if (reviewText.trim()) payload.content = reviewText;
+
+      await api.submitReview(token, id, payload);
+
+      setReviewSuccess(payload.content ? 'Review submitted and pending manager approval!' : 'Rating submitted directly!');
+      setShowReviewForm(false);
+      setReviewText('');
+      setReviewRating(5);
+      fetchReviews();
+    } catch (err: any) {
+      alert('Failed to submit review: ' + err.message);
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
   return (
-    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 lg:py-12 pb-28 lg:pb-12">
       <Link
         to="/"
         className="inline-flex items-center text-sm font-medium text-gray-500 hover:text-black mb-8 transition-colors group"
@@ -115,11 +174,19 @@ export default function ProductDetail() {
         Back to Products
       </Link>
 
+      <nav className="mb-6 flex items-center gap-2 text-xs text-gray-500 font-medium">
+        <Link to="/" className="hover:text-black transition-colors">Home</Link>
+        <span>/</span>
+        <Link to="/" className="hover:text-black transition-colors">{product.category}</Link>
+        <span>/</span>
+        <span className="text-gray-900 truncate">{product.name}</span>
+      </nav>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
         {/* Left: Images */}
         <div className="flex flex-col gap-4">
-          <div className="aspect-[4/5] w-full overflow-hidden rounded-2xl bg-gray-100 shadow-sm border border-gray-100">
-            <img src={activeImage} alt={product.name} className="h-full w-full object-cover object-center transition-opacity duration-300" />
+          <div className="aspect-[4/5] w-full overflow-hidden rounded-2xl bg-gray-100 shadow-sm border border-gray-100 group">
+            <img src={activeImage} alt={product.name} className="h-full w-full object-cover object-center transition-transform duration-700 group-hover:scale-105" />
           </div>
           <div className="grid grid-cols-3 gap-4">
             {thumbnails.map((thumb, idx) => (
@@ -146,13 +213,25 @@ export default function ProductDetail() {
             <div className="flex flex-wrap items-center gap-4 mb-6">
               <div className="flex items-center gap-1">
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <Star key={star} size={20} className={star <= Math.round(product.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'} />
+                  <Star key={star} size={20} className={star <= Math.round(ratingSummary.ratingAverage || product.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'} />
                 ))}
               </div>
-              <span className="text-sm font-medium text-gray-600">{product.rating} out of 5</span>
+              <span className="text-sm font-medium text-gray-600">{(ratingSummary.ratingAverage || product.rating).toFixed(1)} out of 5 ({ratingSummary.ratingCount || 0} reviews)</span>
             </div>
 
-            <div className="text-4xl font-bold text-gray-900">${product.price.toFixed(2)}</div>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="text-4xl font-bold text-gray-900">${displayPrice.toFixed(2)}</div>
+              {product.discountActive ? (
+                <>
+                  <div className="pb-1 text-lg font-semibold text-gray-400 line-through">
+                    ${product.price.toFixed(2)}
+                  </div>
+                  <span className="mb-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-red-700">
+                    {product.discountRate}% off
+                  </span>
+                </>
+              ) : null}
+            </div>
           </div>
 
           {/* Specs */}
@@ -218,7 +297,7 @@ export default function ProductDetail() {
               {addedFeedback ? (
                 <><Check size={24} /> Added to Cart!</>
               ) : (
-                <><ShoppingCart size={24} /> {isOutOfStock ? 'Out of Stock' : `Add to Cart — $${(product.price * quantity).toFixed(2)}`}</>
+                <><ShoppingCart size={24} /> {isOutOfStock ? 'Out of Stock' : `Add to Cart — $${(displayPrice * quantity).toFixed(2)}`}</>
               )}
             </button>
 
@@ -234,41 +313,111 @@ export default function ProductDetail() {
       <div className="mt-24 pt-16 border-t border-gray-200">
         <div className="flex items-center justify-between mb-10">
           <h2 className="text-2xl font-bold text-gray-900">Comments & Reviews</h2>
-          <button className="text-sm font-bold text-black border-b-2 border-black hover:text-gray-600 hover:border-gray-600 transition-colors pb-1">
-            Write a Review
+          <button 
+            onClick={() => setShowReviewForm(!showReviewForm)}
+            className="text-sm font-bold text-black border-b-2 border-black hover:text-gray-600 hover:border-gray-600 transition-colors pb-1"
+          >
+            {showReviewForm ? 'Cancel Review' : 'Write a Review'}
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="flex gap-5 p-6 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-            <div className="h-12 w-12 flex-shrink-0 rounded-full bg-gray-200 overflow-hidden ring-2 ring-offset-2 ring-gray-100">
-              <img
-                src="https://images.unsplash.com/photo-1563237023-b1e970526dcb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=100"
-                alt="Sarah Jenkins"
-                className="h-full w-full object-cover"
-              />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-3">
-                  <h4 className="font-bold text-gray-900 text-lg">Sarah Jenkins</h4>
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full uppercase tracking-wider">
-                    <Check size={10} strokeWidth={3} /> Verified Buyer
-                  </span>
-                </div>
-                <span className="text-xs text-gray-400 font-medium">2 days ago</span>
-              </div>
-              <div className="flex items-center mb-4">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <Star key={star} size={14} className="fill-yellow-400 text-yellow-400" />
-                ))}
-              </div>
-              <p className="text-gray-600 leading-relaxed text-sm sm:text-base">
-                Absolutely in love with this! The quality exceeded my expectations.
-                The material feels premium and the fit is just perfect. Highly recommend AURA!
-              </p>
-            </div>
+        {reviewSuccess && (
+          <div className="mb-8 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-800 flex items-center gap-2">
+            <Check size={18} />
+            {reviewSuccess}
           </div>
+        )}
+
+        {showReviewForm && (
+          <div className="mb-12 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm transition-all animate-in fade-in slide-in-from-top-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Share Your Experience</h3>
+            <div className="mb-6 flex gap-2">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setReviewRating(value)}
+                  className={`h-12 w-12 rounded-xl border-2 transition-all flex items-center justify-center
+                    ${value <= reviewRating
+                      ? 'border-yellow-400 bg-yellow-50 text-yellow-500'
+                      : 'border-gray-100 bg-white text-gray-300 hover:border-yellow-200 hover:text-yellow-400'
+                    }`}
+                >
+                  <Star size={20} className={value <= reviewRating ? 'fill-yellow-400' : ''} />
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+              placeholder="What did you love about this product? (Optional)"
+              rows={4}
+              className="mb-4 w-full rounded-xl border-2 border-gray-100 p-4 text-gray-900 placeholder-gray-400 focus:border-black focus:ring-0 transition-colors resize-none"
+            />
+            <button
+              onClick={submitReview}
+              disabled={isSubmittingReview}
+              className="inline-flex w-full sm:w-auto items-center justify-center rounded-xl bg-black px-8 py-4 text-sm font-bold text-white hover:bg-gray-800 transition-all disabled:opacity-50"
+            >
+              {isSubmittingReview ? 'Submitting...' : 'Submit Review'}
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {publicComments.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-300 p-12 text-center text-gray-500 lg:col-span-2">
+              <Star size={32} className="mx-auto mb-4 text-gray-300" />
+              <p className="font-semibold text-gray-900">No comments yet</p>
+              <p className="text-sm">Be the first to share your thoughts on this product!</p>
+            </div>
+          ) : (
+            publicComments.map((comment) => (
+              <div key={comment.id} className="flex gap-5 p-6 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                <div className="h-12 w-12 flex-shrink-0 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 font-bold overflow-hidden ring-2 ring-offset-2 ring-gray-100">
+                  {comment.customerName.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <h4 className="font-bold text-gray-900 text-lg">{comment.customerName}</h4>
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full uppercase tracking-wider">
+                        <Check size={10} strokeWidth={3} /> Verified
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center mb-4">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star key={star} size={14} className={star <= (comment.rating || 5) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-200'} />
+                    ))}
+                  </div>
+                  <p className="text-gray-600 leading-relaxed text-sm sm:text-base">
+                    {comment.content}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Mobile sticky bottom CTA */}
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-200 px-4 py-3 shadow-2xl">
+        <div className="flex items-center gap-3">
+          <div className="flex-1">
+            <p className="text-xs text-gray-500">Total</p>
+            <p className="text-lg font-bold text-gray-900 tabular-nums">
+              ${(displayPrice * quantity).toFixed(2)}
+            </p>
+          </div>
+          <button
+            onClick={handleAddToCart}
+            disabled={isOutOfStock}
+            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-black py-3 px-4 text-sm font-bold text-white active:scale-95 transition-transform disabled:bg-gray-200 disabled:text-gray-500"
+          >
+            <ShoppingCart size={16} />
+            {isOutOfStock ? 'Out of Stock' : 'Add to Cart'}
+          </button>
         </div>
       </div>
     </div>

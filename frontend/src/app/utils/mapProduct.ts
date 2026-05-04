@@ -17,10 +17,15 @@ interface BackendProduct {
   stock?: number;
   stockQuantity?: number;
   price: number;
+  effectivePrice?: number;
+  discountRate?: number;
+  discountActive?: boolean;
   warrantyStatus?: string;
   distributor?: string;
   imageUrl?: string;
   rating?: number;
+  ratingAverage?: number;
+  ratingCount?: number;
   category?: string;
   categoryName?: string;
 }
@@ -34,10 +39,14 @@ export function mapProduct(raw: BackendProduct): CatalogProduct {
     description: raw.description || '',
     stockQuantity: raw.stockQuantity ?? raw.stock ?? 0,
     price: raw.price ?? 0,
+    effectivePrice: raw.effectivePrice ?? raw.price ?? 0,
+    discountRate: raw.discountRate ?? 0,
+    discountActive: Boolean(raw.discountActive),
     warrantyStatus: raw.warrantyStatus || 'Not Available',
     distributor: raw.distributor || 'Unknown',
     imageUrl: raw.imageUrl || 'https://via.placeholder.com/400',
-    rating: raw.rating ?? 4.0,
+    rating: raw.ratingAverage ?? raw.rating ?? 0,
+    ratingCount: raw.ratingCount ?? 0,
     category: raw.categoryName || raw.category || 'Uncategorized',
   };
 }

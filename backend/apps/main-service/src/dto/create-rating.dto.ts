@@ -1,6 +1,6 @@
 import { IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
-export class CreateCommentDto {
+export class CreateRatingDto {
   @IsString()
   productId!: string;
 
@@ -10,12 +10,12 @@ export class CreateCommentDto {
   @IsString()
   customerName!: string;
 
-  @IsString()
-  content!: string;
-
-  @IsOptional()
   @IsNumber()
   @Min(1)
   @Max(5)
-  rating?: number;
+  rating!: number;
+
+  @IsOptional()
+  @IsString()
+  content?: string;
 }

@@ -14,20 +14,18 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { ClientProxy } from '@nestjs/microservices';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { firstValueFrom } from 'rxjs';
 import { SERVICE_TOKENS } from '@app/common/constants/service-tokens';
 import { LoginDto } from '../../login-service/src/dto/login.dto';
 import { UpdateSessionDto } from '../../login-service/src/dto/update-session.dto';
 import { CreateCategoryDto } from '../../main-service/src/dto/create-category.dto';
-import { CreateCommentDto } from '../../main-service/src/dto/create-comment.dto';
-import { ListCommentsDto } from '../../main-service/src/dto/list-comments.dto';
-import { UpdateCommentApprovalDto } from '../../main-service/src/dto/update-comment-approval.dto';
 import { CreateUserDto } from '../../register-service/src/dto/create-user.dto';
 import { RegisterUserDto } from '../../register-service/src/dto/register-user.dto';
 import { UpdateUserDto } from '../../register-service/src/dto/update-user.dto';
@@ -48,24 +46,81 @@ class CheckoutRequestDto {
   deliveryAddress?: string;
 }
 
+
+
 class UpdateOrderStatusRequestDto {
   @IsIn(['processing', 'in-transit', 'delivered'])
   status!: 'processing' | 'in-transit' | 'delivered';
 }
 
-class CreateCommentRequestDto {
+class SubmitCommentRequestDto {
   @IsString()
   content!: string;
 
-  @IsInt()
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  rating?: number;
+}
+
+class SubmitRatingRequestDto {
+  @IsNumber()
   @Min(1)
   @Max(5)
   rating!: number;
+
+  @IsOptional()
+  @IsString()
+  content?: string;
 }
 
-class UpdateCommentApprovalRequestDto {
+class SubmitReviewRequestDto {
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @IsOptional()
+  @IsString()
+  content?: string;
+}
+
+class ReviewCommentRequestDto {
   @IsIn(['approved', 'rejected'])
   approvalStatus!: 'approved' | 'rejected';
+
+  @IsOptional()
+  @IsString()
+  reviewNote?: string;
+}
+
+class UpdateStockRequestDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  stock?: number;
+
+  @IsOptional()
+  @IsNumber()
+  adjustment?: number;
+}
+
+class UpdateProductPricingRequestDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  price?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  discountRate?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  discountActive?: boolean;
 }
 
 type AuthenticatedUser = {
@@ -188,19 +243,24 @@ export class AppController {
     }
   }
 
-  private requireProductManager(user: AuthenticatedUser) {
-    if (user.role !== 'productManager') {
-      throw new ForbiddenException('Product manager access is required');
+  private requireManager(user: AuthenticatedUser) {
+    if (!['salesManager', 'productManager'].includes(user.role)) {
+      throw new ForbiddenException('Manager access is required');
     }
   }
 
-  private async requireUserProfile(userId: string) {
-    return this.sendMessage<{
-      id: string;
-      name: string;
-      email: string;
-      address?: string;
-    }>(this.registerClient, 'register.findOneUser', userId);
+  private async getCustomerDisplayName(user: AuthenticatedUser) {
+    try {
+      const profile = await this.sendMessage<{ name?: string }>(
+        this.registerClient,
+        'register.findOneUser',
+        user.sub,
+      );
+
+      return profile.name?.trim() || user.email.split('@')[0] || 'Customer';
+    } catch {
+      return user.email.split('@')[0] || 'Customer';
+    }
   }
 
   @Get()
@@ -208,6 +268,26 @@ export class AppController {
     return {
       service: 'api-gateway',
       message: 'Clothing store microservice backend is running',
+    };
+  }
+
+  @Get('playground')
+  getPlaygroundInfo() {
+    return {
+      frontend: 'http://localhost:3001/playground',
+      mailInbox: 'http://localhost:8025',
+      testUsers: {
+        customer: 'customer@aura.test',
+        manager: 'manager@aura.test',
+        password: 'password123',
+      },
+      flows: [
+        'Submit a rating without approval',
+        'Submit a comment without a rating and approve it as manager',
+        'Checkout and receive a PDF invoice email in Mailpit',
+        'Update order status as manager',
+        'Update price and discount as manager',
+      ],
     };
   }
 
@@ -298,42 +378,69 @@ export class AppController {
 
   @Post('products/:id/comments')
   @HttpCode(HttpStatus.CREATED)
-  async createComment(
+  async submitComment(
     @Headers('authorization') authorization: string | undefined,
     @Param('id') id: string,
-    @Body() dto: CreateCommentRequestDto,
+    @Body() dto: SubmitCommentRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    const user = await this.requireUserProfile(authUser.sub);
+    const customerName = await this.getCustomerDisplayName(authUser);
 
-    return this.sendMessage<CreateCommentDto>(this.mainClient, 'main.createComment', {
+    return this.sendMessage(this.mainClient, 'main.createComment', {
       productId: id,
       customerId: authUser.sub,
-      customerName: user.name,
+      customerName,
       content: dto.content,
       rating: dto.rating,
     });
   }
 
-  @Get('products/:id/comments')
-  async findProductComments(
+  @Post('products/:id/ratings')
+  @HttpCode(HttpStatus.CREATED)
+  async submitRating(
+    @Headers('authorization') authorization: string | undefined,
     @Param('id') id: string,
-    @Query('approvalStatus') approvalStatus?: ListCommentsDto['approvalStatus'],
-    @Headers('authorization') authorization?: string,
+    @Body() dto: SubmitRatingRequestDto,
   ) {
-    if (!approvalStatus) {
-      return this.sendMessage(this.mainClient, 'main.findComments', {
-        productId: id,
-      });
-    }
-
     const authUser = await this.requireAuth(authorization);
-    this.requireProductManager(authUser);
+    const customerName = await this.getCustomerDisplayName(authUser);
 
-    return this.sendMessage(this.mainClient, 'main.findComments', {
+    return this.sendMessage(this.mainClient, 'main.createRating', {
       productId: id,
-      approvalStatus,
+      customerId: authUser.sub,
+      customerName,
+      rating: dto.rating,
+      content: dto.content,
     });
+  }
+
+  @Post('products/:id/reviews')
+  @HttpCode(HttpStatus.CREATED)
+  async submitReview(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: SubmitReviewRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const customerName = await this.getCustomerDisplayName(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.createRating', {
+      productId: id,
+      customerId: authUser.sub,
+      customerName,
+      rating: dto.rating,
+      content: dto.content,
+    });
+  }
+
+  @Get('products/:id/comments')
+  findPublicComments(@Param('id') id: string) {
+    return this.sendMessage(this.mainClient, 'main.findPublicComments', id);
+  }
+
+  @Get('products/:id/ratings')
+  findProductRatings(@Param('id') id: string) {
+    return this.sendMessage(this.mainClient, 'main.findProductRatings', id);
   }
 
   @Get('categories/:id')
@@ -344,6 +451,82 @@ export class AppController {
   @Patch('products/:id')
   updateProduct(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.sendMessage(this.mainClient, 'main.updateProduct', { id, dto });
+  }
+
+  @Get('manager/comments')
+  async findManagerComments(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('status') status?: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.findCommentsForManager', {
+      status,
+    });
+  }
+
+  @Patch('manager/comments/:id')
+  async reviewComment(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: ReviewCommentRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.reviewComment', {
+      id,
+      dto: {
+        approvalStatus: dto.approvalStatus,
+        reviewedBy: authUser.sub,
+        reviewNote: dto.reviewNote,
+      },
+    });
+  }
+
+  @Patch('manager/products/:id/pricing')
+  async updateProductPricing(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateProductPricingRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.updateProductPricing', {
+      id,
+      dto,
+    });
+  }
+
+  @Patch('manager/products/:id/stock')
+  async updateProductStock(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateStockRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.updateStock', {
+      id,
+      dto,
+    });
+  }
+
+  @Get('manager/products/low-stock')
+  async findLowStockProducts(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('threshold') threshold?: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    const parsedThreshold = threshold ? Number.parseInt(threshold, 10) : 5;
+    return this.sendMessage(this.mainClient, 'main.findLowStock', {
+      threshold: Number.isFinite(parsedThreshold) ? parsedThreshold : 5,
+    });
   }
 
   @Patch('categories/:id')
@@ -400,7 +583,11 @@ export class AppController {
     @Body() dto: CheckoutRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    const user = await this.requireUserProfile(authUser.sub);
+    const user = await this.sendMessage<{
+      id: string;
+      email: string;
+      address?: string;
+    }>(this.registerClient, 'register.findOneUser', authUser.sub);
     const deliveryAddress = dto.deliveryAddress?.trim() || user.address?.trim();
 
     if (!deliveryAddress) {
@@ -415,6 +602,8 @@ export class AppController {
     });
   }
 
+
+
   @Get('orders')
   async findMyOrders(
     @Headers('authorization') authorization: string | undefined,
@@ -425,23 +614,39 @@ export class AppController {
     });
   }
 
-  @Get('orders/:id')
-  async findOneOrder(
+  @Get('manager/orders')
+  async findManagerOrders(
     @Headers('authorization') authorization: string | undefined,
-    @Param('id') id: string,
   ) {
     const authUser = await this.requireAuth(authorization);
-    const order = await this.sendMessage<{ customerId: string }>(
-      this.cardClient,
-      'card.findOneOrder',
-      id,
-    );
+    this.requireManager(authUser);
 
-    if (order.customerId !== authUser.sub && authUser.role !== 'productManager') {
-      throw new ForbiddenException('You cannot view this order');
-    }
+    return this.sendMessage(this.cardClient, 'card.findAllOrders', {});
+  }
 
-    return order;
+  @Patch('manager/orders/:id/status')
+  async updateManagerOrderStatus(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderStatusRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.updateOrderStatus', {
+      orderId: id,
+      status: dto.status,
+    });
+  }
+
+  @Get('orders/status/my')
+  async findMyOrderDeliveryStatus(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    return this.sendMessage(this.cardClient, 'card.findOrderDeliveryStatusForUser', {
+      userId: authUser.sub,
+    });
   }
 
   @Get('orders/:id/invoice')
@@ -456,13 +661,89 @@ export class AppController {
       id,
     );
 
-    if (order.customerId !== authUser.sub && authUser.role !== 'productManager') {
+    if (
+      order.customerId !== authUser.sub &&
+      !['salesManager', 'productManager'].includes(authUser.role)
+    ) {
       throw new ForbiddenException('You cannot view this invoice');
     }
 
-    return this.sendMessage(this.cardClient, 'card.findInvoiceForOrder', {
-      orderId: id,
-    });
+    return this.sendMessage(this.cardClient, 'card.findOrderInvoice', id);
+  }
+
+  @Get('orders/:id/invoice/pdf')
+  async findOrderInvoicePdf(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Res() res: any,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const order = await this.sendMessage<{ customerId: string }>(
+      this.cardClient,
+      'card.findOneOrder',
+      id,
+    );
+
+    if (
+      order.customerId !== authUser.sub &&
+      !['salesManager', 'productManager'].includes(authUser.role)
+    ) {
+      throw new ForbiddenException('You cannot view this invoice PDF');
+    }
+
+    const pdf = await this.sendMessage<{
+      fileName: string;
+      contentType: string;
+      base64: string;
+    }>(this.cardClient, 'card.findOrderInvoicePdf', id);
+
+    res.setHeader('Content-Type', pdf.contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${pdf.fileName}"`);
+    return res.send(Buffer.from(pdf.base64, 'base64'));
+  }
+
+  @Post('orders/:id/invoice/email')
+  async emailOrderInvoice(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const order = await this.sendMessage<{ customerId: string }>(
+      this.cardClient,
+      'card.findOneOrder',
+      id,
+    );
+
+    if (
+      order.customerId !== authUser.sub &&
+      !['salesManager', 'productManager'].includes(authUser.role)
+    ) {
+      throw new ForbiddenException('You cannot email this invoice');
+    }
+
+    return this.sendMessage(this.cardClient, 'card.emailOrderInvoice', id);
+  }
+
+  @Get('orders/:id')
+  async findOneOrder(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    const order = await this.sendMessage<{ customerId: string }>(
+      this.cardClient,
+      'card.findOneOrder',
+      id,
+    );
+
+    if (
+      order.customerId !== authUser.sub &&
+      !['salesManager', 'productManager'].includes(authUser.role)
+    ) {
+      throw new ForbiddenException('You cannot view this order');
+    }
+
+    return order;
   }
 
   @Patch('orders/:id/status')
@@ -472,7 +753,7 @@ export class AppController {
     @Body() dto: UpdateOrderStatusRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireProductManager(authUser);
+    this.requireManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.updateOrderStatus', {
       orderId: id,
@@ -485,7 +766,7 @@ export class AppController {
     @Headers('authorization') authorization: string | undefined,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireProductManager(authUser);
+    this.requireManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.findDeliveries', {});
   }
@@ -497,32 +778,12 @@ export class AppController {
     @Body() dto: UpdateOrderStatusRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireProductManager(authUser);
+    this.requireManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.updateDeliveryStatus', {
       deliveryId: id,
       status: dto.status,
     });
-  }
-
-  @Patch('comments/:id/approval')
-  async updateCommentApproval(
-    @Headers('authorization') authorization: string | undefined,
-    @Param('id') id: string,
-    @Body() dto: UpdateCommentApprovalRequestDto,
-  ) {
-    const authUser = await this.requireAuth(authorization);
-    this.requireProductManager(authUser);
-
-    return this.sendMessage<UpdateCommentApprovalDto>(
-      this.mainClient,
-      'main.updateCommentApproval',
-      {
-        commentId: id,
-        approvalStatus: dto.approvalStatus,
-        reviewedBy: authUser.sub,
-      },
-    );
   }
 
   @Get('deliveries/my')
