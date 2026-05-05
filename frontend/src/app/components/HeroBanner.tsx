@@ -1,8 +1,16 @@
 import React from 'react';
 import { ArrowRight, Sparkles } from 'lucide-react';
-import { Link } from 'react-router';
 
 export function HeroBanner() {
+  const scrollToProducts = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const el = document.getElementById('products');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.scrollTo({ top: window.innerHeight, behavior: 'smooth' });
+    }
+  };
   return (
     <>
       <section className="relative w-full overflow-hidden bg-[#0a0a0a] text-white">
@@ -27,19 +35,33 @@ export function HeroBanner() {
               Timeless silhouettes. Modern comfort. Pieces that move with your story.
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-4">
-              <Link
-                to="/"
-                className="group inline-flex items-center gap-2 rounded-full bg-white text-black font-bold px-8 py-4 text-sm tracking-wide shadow-2xl hover:bg-gray-100 transition-all hover:-translate-y-0.5"
+              <a
+                href="#products"
+                onClick={scrollToProducts}
+                className="group inline-flex items-center gap-2 rounded-full bg-white text-black font-bold px-8 py-4 text-sm tracking-wide shadow-2xl hover:bg-gray-100 transition-all hover:-translate-y-0.5 hover:scale-[1.03] cursor-pointer"
               >
                 Shop the collection
-                <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
-              </Link>
-              <Link
-                to="/"
-                className="inline-flex items-center gap-2 rounded-full border border-white/30 text-white font-semibold px-8 py-4 text-sm tracking-wide hover:bg-white/10 transition-colors"
+                <ArrowRight size={16} className="transition-transform group-hover:translate-x-1.5" />
+              </a>
+              <a
+                href="#new-arrivals"
+                onClick={(e) => {
+                  e.preventDefault();
+                  const el = document.getElementById('new-arrivals');
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  } else {
+                    // Fallback to products grid if New Arrivals isn't mounted
+                    // (e.g. when a category filter is active).
+                    document
+                      .getElementById('products')
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }
+                }}
+                className="inline-flex items-center gap-2 rounded-full border border-white/30 text-white font-semibold px-8 py-4 text-sm tracking-wide transition-colors hover:border-white hover:bg-white hover:text-black cursor-pointer"
               >
                 Explore new arrivals
-              </Link>
+              </a>
             </div>
           </div>
         </div>

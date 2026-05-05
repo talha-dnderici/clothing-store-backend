@@ -4,6 +4,7 @@ import { Minus, Plus, Trash2, ShoppingBag, LogIn, Truck, Shield, RotateCcw, Arro
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { LazyImage } from '../components/LazyImage';
 
 /**
  * FE-8 (SCRUM-36) — Shopping cart page.
@@ -57,10 +58,10 @@ export default function Cart() {
               data-testid={`cart-row-${item.id}`}
               className="flex gap-4 rounded-xl border border-gray-100 bg-white p-4 shadow-sm"
             >
-              <img
+              <LazyImage
                 src={item.imageUrl}
                 alt={item.name}
-                className="h-24 w-24 rounded-lg object-cover flex-shrink-0"
+                className="h-24 w-24 rounded-lg object-cover flex-shrink-0 bg-gray-100"
               />
               <div className="flex-1">
                 <h3 className="font-semibold text-gray-900">{item.name}</h3>

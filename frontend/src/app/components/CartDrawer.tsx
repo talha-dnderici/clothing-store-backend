@@ -1,8 +1,11 @@
 import React, { useEffect } from 'react';
-import { X, Minus, Plus, ShoppingBag, Trash2, ArrowRight } from 'lucide-react';
+import { X, Minus, Plus, ShoppingBag, Trash2, ArrowRight, Truck, PartyPopper } from 'lucide-react';
+
+const FREE_SHIPPING_THRESHOLD = 100;
 import { useNavigate } from 'react-router';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
+import { LazyImage } from './LazyImage';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -96,10 +99,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
                   style={{ animationDelay: `${idx * 40}ms` }}
                   className="animate-fade-up flex gap-4 rounded-xl border border-gray-100 bg-gray-50 p-3 transition-all hover:bg-white hover:shadow-sm hover:border-gray-200"
                 >
-                  <img
+                  <LazyImage
                     src={item.imageUrl}
                     alt={item.name}
-                    className="h-20 w-20 rounded-lg object-cover flex-shrink-0"
+                    className="h-20 w-20 rounded-lg object-cover flex-shrink-0 bg-gray-100"
                   />
                   <div className="flex-1 min-w-0">
                     <h4 className="text-sm font-semibold text-gray-900 truncate">{item.name}</h4>
@@ -137,6 +140,54 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
 
         {items.length > 0 && (
           <div className="border-t border-gray-100 px-6 py-5 space-y-4 bg-gradient-to-b from-white to-gray-50">
+            {/* Free shipping progress — encourages cart growth past the threshold */}
+            {(() => {
+              const remaining = Math.max(0, FREE_SHIPPING_THRESHOLD - totalPrice);
+              const pct = Math.min(100, (totalPrice / FREE_SHIPPING_THRESHOLD) * 100);
+              const unlocked = remaining === 0;
+              return (
+                <div
+                  data-testid="free-shipping-progress"
+                  className={`rounded-xl border px-3 py-2.5 ${
+                    unlocked
+                      ? 'bg-emerald-50 border-emerald-200'
+                      : 'bg-white border-gray-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-xs font-semibold mb-1.5">
+                    {unlocked ? (
+                      <>
+                        <PartyPopper size={14} className="text-emerald-600" />
+                        <span className="text-emerald-700">
+                          You unlocked <span className="font-bold">free shipping</span>!
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Truck size={14} className="text-gray-500" />
+                        <span className="text-gray-700">
+                          Add{' '}
+                          <span className="font-bold tabular-nums text-gray-900">
+                            ${remaining.toFixed(2)}
+                          </span>{' '}
+                          more for free shipping
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        unlocked ? 'bg-emerald-500' : 'bg-black'
+                      }`}
+                      style={{ width: `${pct}%` }}
+                      aria-hidden="true"
+                    />
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-gray-500">Subtotal</span>
               <span className="text-xl font-bold text-gray-900 tabular-nums">${totalPrice.toFixed(2)}</span>

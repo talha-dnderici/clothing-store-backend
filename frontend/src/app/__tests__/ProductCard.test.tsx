@@ -8,12 +8,15 @@ import { MemoryRouter } from 'react-router';
 import { ProductCard } from '../components/ProductCard';
 import { CartProvider, useCart } from '../context/CartContext';
 import { ToastProvider } from '../context/ToastContext';
+import { WishlistProvider } from '../context/WishlistContext';
 import type { CatalogProduct } from '../types/catalog';
 
 const wrap = (ui: React.ReactNode) => (
   <MemoryRouter>
     <CartProvider>
-      <ToastProvider>{ui}</ToastProvider>
+      <ToastProvider>
+        <WishlistProvider>{ui}</WishlistProvider>
+      </ToastProvider>
     </CartProvider>
   </MemoryRouter>
 );

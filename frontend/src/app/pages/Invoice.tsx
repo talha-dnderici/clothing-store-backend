@@ -35,6 +35,27 @@ export default function Invoice() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10" data-testid="invoice-page">
+      <style>{`
+        @media print {
+          @page { size: A4; margin: 1.5cm; }
+          html, body { background: #ffffff !important; color: #000000 !important; }
+          header, nav, footer, .no-print,
+          [aria-label="Open cart"], [aria-label="Wishlist"],
+          [aria-label="Close cart"] { display: none !important; }
+          .print-only { display: block !important; }
+          .items-table tr, tr { break-inside: avoid; page-break-inside: avoid; }
+          * { box-shadow: none !important; text-shadow: none !important; }
+          .bg-gradient-to-br, .bg-gradient-to-b, .bg-gradient-to-r, .bg-gradient-to-l,
+          .bg-gradient-to-t { background: #ffffff !important; }
+        }
+        .print-only { display: none; }
+      `}</style>
+
+      <div className="print-only mb-6 pb-4 border-b-2 border-black">
+        <h1 className="text-2xl font-extrabold">AURA CLOTHING — Invoice</h1>
+        <p className="text-xs text-gray-600">Date: {new Date().toLocaleDateString()}</p>
+      </div>
+
       <div className="rounded-2xl border border-gray-100 bg-white p-8 shadow-sm">
         <div className="text-center pb-6 border-b border-gray-100">
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-green-50 animate-[fadeUp_0.6s_cubic-bezier(0.16,1,0.3,1)]">
@@ -74,7 +95,7 @@ export default function Invoice() {
           <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
             Items
           </h2>
-          <table className="mt-3 w-full text-sm">
+          <table className="mt-3 w-full text-sm items-table">
             <thead>
               <tr className="text-left text-gray-500 border-b border-gray-100">
                 <th className="py-2">Product</th>
@@ -106,7 +127,7 @@ export default function Invoice() {
           </table>
         </div>
 
-        <div className="mt-8 flex flex-wrap gap-3">
+        <div className="mt-8 flex flex-wrap gap-3 no-print">
           <button
             onClick={() => window.print()}
             className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50"

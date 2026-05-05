@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Outlet } from 'react-router';
+import { Outlet, useLocation, useNavigate } from 'react-router';
 import { Navbar } from './components/Navbar';
 import { CategoryMenu } from './components/CategoryMenu';
 import { api } from './utils/api';
@@ -9,6 +9,8 @@ export default function Root() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [categories, setCategories] = useState<string[]>(['All']);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
@@ -37,12 +39,18 @@ export default function Root() {
   }, []);
 
   const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query);
-  }, []);
+    setSearchQuery((prev) => {
+      if (prev !== query && location.pathname !== '/') navigate('/');
+      return query;
+    });
+  }, [location.pathname, navigate]);
 
   const handleCategoryChange = useCallback((category: string) => {
-    setActiveCategory(category);
-  }, []);
+    setActiveCategory((prev) => {
+      if (prev !== category && location.pathname !== '/') navigate('/');
+      return category;
+    });
+  }, [location.pathname, navigate]);
 
   return (
     <div className="min-h-screen bg-[#fafafa] text-gray-900 font-sans selection:bg-black selection:text-white flex flex-col">
@@ -54,7 +62,12 @@ export default function Root() {
       />
 
       <main className="flex-1">
-        <Outlet context={{ searchQuery, activeCategory, categories }} />
+        <Outlet context={{
+          searchQuery,
+          activeCategory,
+          categories,
+          clearFilters: () => { setSearchQuery(''); setActiveCategory('All'); },
+        }} />
       </main>
 
       <footer className="border-t border-gray-200 bg-white mt-auto">
@@ -79,10 +92,26 @@ export default function Root() {
             <div>
               <p className="text-xs font-bold uppercase tracking-widest text-gray-900 mb-3">Shop</p>
               <ul className="space-y-2 text-sm text-gray-600">
-                <li><a href="#" className="hover:text-black transition-colors">New Arrivals</a></li>
-                <li><a href="#" className="hover:text-black transition-colors">Women</a></li>
-                <li><a href="#" className="hover:text-black transition-colors">Men</a></li>
-                <li><a href="#" className="hover:text-black transition-colors">Sale</a></li>
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => handleCategoryChange('All')}
+                    className="hover:text-black transition-colors text-left"
+                  >
+                    New Arrivals
+                  </button>
+                </li>
+                {categories.filter((c) => c !== 'All').map((cat) => (
+                  <li key={cat}>
+                    <button
+                      type="button"
+                      onClick={() => handleCategoryChange(cat)}
+                      className="hover:text-black transition-colors text-left"
+                    >
+                      {cat}
+                    </button>
+                  </li>
+                ))}
               </ul>
             </div>
             <div>

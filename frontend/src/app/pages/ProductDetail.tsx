@@ -1,17 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router';
-import { Star, ShoppingCart, ArrowLeft, Check, Shield, Truck, Package, AlertTriangle } from 'lucide-react';
+import { Star, ShoppingCart, ArrowLeft, Check, ShieldCheck, Truck, Package, RotateCcw, AlertTriangle, Heart } from 'lucide-react';
 import { api } from '../utils/api';
 import { mapProduct } from '../utils/mapProduct';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
+import { useWishlist } from '../context/WishlistContext';
+import { useRecentlyViewed } from '../context/RecentlyViewedContext';
 import { QuantitySelector } from '../components/QuantitySelector';
+import { LazyImage } from '../components/LazyImage';
+import { RecentlyViewed } from '../components/RecentlyViewed';
 import { CatalogProduct } from '../types/catalog';
 
 export default function ProductDetail() {
   const { id } = useParams();
   const { addToCart } = useCart();
   const { showToast } = useToast();
+  const { toggleWishlist, isWishlisted } = useWishlist();
+  const { addRecent } = useRecentlyViewed();
   const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -53,6 +59,7 @@ export default function ProductDetail() {
           const mapped = mapProduct(res.data);
           setProduct(mapped);
           setActiveImage(mapped.imageUrl);
+          addRecent(mapped);
         }
       })
       .catch(() => {
@@ -110,11 +117,9 @@ export default function ProductDetail() {
   const isLowStock = product.stockQuantity > 0 && product.stockQuantity <= 5;
   const displayPrice = product.effectivePrice ?? product.price;
 
-  const thumbnails = [
-    product.imageUrl,
-    product.imageUrl.replace('&w=1080', '&w=1081'),
-    product.imageUrl.replace('&w=1080', '&w=1082'),
-  ];
+  const thumbnails: string[] = Array.isArray((product as any).images) && (product as any).images.length > 1
+    ? (product as any).images
+    : [];
 
   const handleAddToCart = () => {
     const success = addToCart({
@@ -174,35 +179,37 @@ export default function ProductDetail() {
         Back to Products
       </Link>
 
-      <nav className="mb-6 flex items-center gap-2 text-xs text-gray-500 font-medium">
-        <Link to="/" className="hover:text-black transition-colors">Home</Link>
-        <span>/</span>
-        <Link to="/" className="hover:text-black transition-colors">{product.category}</Link>
-        <span>/</span>
-        <span className="text-gray-900 truncate">{product.name}</span>
+      <nav className="mb-6 flex items-center gap-2">
+        <Link to="/" className="text-xs font-semibold text-gray-500 hover:text-black uppercase tracking-wider transition-colors">Home</Link>
+        <span className="text-gray-300">/</span>
+        <Link to="/" className="text-xs font-semibold text-gray-500 hover:text-black uppercase tracking-wider transition-colors">{product.category}</Link>
+        <span className="text-gray-300">/</span>
+        <span className="text-xs font-bold text-black uppercase tracking-wider truncate">{product.name}</span>
       </nav>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
         {/* Left: Images */}
         <div className="flex flex-col gap-4">
           <div className="aspect-[4/5] w-full overflow-hidden rounded-2xl bg-gray-100 shadow-sm border border-gray-100 group">
-            <img src={activeImage} alt={product.name} className="h-full w-full object-cover object-center transition-transform duration-700 group-hover:scale-105" />
+            <LazyImage src={activeImage} alt={product.name} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-105" />
           </div>
-          <div className="grid grid-cols-3 gap-4">
-            {thumbnails.map((thumb, idx) => (
-              <button
-                key={idx}
-                onClick={() => setActiveImage(thumb)}
-                className={`aspect-square overflow-hidden rounded-xl bg-gray-50 border-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 ${
-                  activeImage === thumb
-                    ? 'border-black ring-2 ring-black ring-offset-1 shadow-md'
-                    : 'border-transparent hover:border-gray-300 hover:shadow-sm opacity-70 hover:opacity-100'
-                }`}
-              >
-                <img src={thumb} alt={`${product.name} angle ${idx + 1}`} className="h-full w-full object-cover object-center" />
-              </button>
-            ))}
-          </div>
+          {thumbnails.length > 1 && (
+            <div className="grid grid-cols-3 gap-4">
+              {thumbnails.map((thumb, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setActiveImage(thumb)}
+                  className={`aspect-square overflow-hidden rounded-xl bg-gray-50 border-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 ${
+                    activeImage === thumb
+                      ? 'border-black ring-2 ring-black ring-offset-1 shadow-md'
+                      : 'border-transparent hover:border-gray-300 hover:shadow-sm opacity-70 hover:opacity-100'
+                  }`}
+                >
+                  <LazyImage src={thumb} alt={`${product.name} angle ${idx + 1}`} className="h-full w-full object-cover object-top" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Right: Details */}
@@ -262,12 +269,6 @@ export default function ProductDetail() {
                   )}
                 </dd>
               </div>
-              <div className="flex flex-col">
-                <dt className="text-gray-500 mb-1">Warranty Status</dt>
-                <dd className="font-semibold text-gray-900 flex items-center gap-2">
-                  <Shield size={16} className="text-blue-600" /> {product.warrantyStatus}
-                </dd>
-              </div>
               <div className="flex flex-col sm:col-span-2 pt-2 border-t border-gray-200">
                 <dt className="text-gray-500 mb-1">Distributor Information</dt>
                 <dd className="font-semibold text-gray-900 flex items-center gap-2">
@@ -277,29 +278,58 @@ export default function ProductDetail() {
             </dl>
           </div>
 
+          {/* Value-adding info pills */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-6 border-b border-gray-100 mb-6">
+            <InfoPill icon={<Truck size={18} />} title="Free Shipping" sub="On orders over $100" />
+            <InfoPill icon={<RotateCcw size={18} />} title="30-Day Returns" sub="Easy, no questions asked" />
+            <InfoPill icon={<ShieldCheck size={18} />} title="Secure Payment" sub="256-bit SSL protected" />
+            <InfoPill icon={<Package size={18} />} title="Fast Delivery" sub="2-5 business days" />
+          </div>
+
           {/* Quantity + Add to Cart */}
           <div className="mt-auto space-y-4">
             {!isOutOfStock && (
               <QuantitySelector quantity={quantity} maxStock={product.stockQuantity} onChange={setQuantity} />
             )}
 
-            <button
-              onClick={handleAddToCart}
-              disabled={isOutOfStock}
-              className={`flex w-full items-center justify-center gap-3 rounded-xl py-4 px-8 text-lg font-bold shadow-xl shadow-black/10 transition-all focus:outline-none focus:ring-4 focus:ring-gray-200 active:translate-y-0 ${
-                isOutOfStock
-                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                  : addedFeedback
-                    ? 'bg-green-600 text-white'
-                    : 'bg-black text-white hover:bg-gray-800 hover:-translate-y-0.5'
-              }`}
-            >
-              {addedFeedback ? (
-                <><Check size={24} /> Added to Cart!</>
-              ) : (
-                <><ShoppingCart size={24} /> {isOutOfStock ? 'Out of Stock' : `Add to Cart — $${(displayPrice * quantity).toFixed(2)}`}</>
-              )}
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={handleAddToCart}
+                disabled={isOutOfStock}
+                className={`flex-1 flex items-center justify-center gap-3 rounded-xl py-4 px-8 text-lg font-bold shadow-xl shadow-black/10 transition-all focus:outline-none focus:ring-4 focus:ring-gray-200 active:translate-y-0 ${
+                  isOutOfStock
+                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                    : addedFeedback
+                      ? 'bg-green-600 text-white'
+                      : 'bg-black text-white hover:bg-gray-800 hover:-translate-y-0.5'
+                }`}
+              >
+                {addedFeedback ? (
+                  <><Check size={24} /> Added to Cart!</>
+                ) : (
+                  <><ShoppingCart size={24} /> {isOutOfStock ? 'Out of Stock' : `Add to Cart — $${(displayPrice * quantity).toFixed(2)}`}</>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  const wasWished = isWishlisted(product.id);
+                  toggleWishlist(product.id);
+                  showToast({
+                    title: wasWished ? 'Removed from wishlist' : 'Added to wishlist',
+                    description: product.name,
+                    variant: 'info',
+                  });
+                }}
+                aria-label={isWishlisted(product.id) ? 'Remove from wishlist' : 'Add to wishlist'}
+                className={`flex items-center justify-center rounded-xl w-16 border-2 transition-all active:scale-95 ${
+                  isWishlisted(product.id)
+                    ? 'border-red-500 bg-red-50 text-red-500'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-400 hover:text-black'
+                }`}
+              >
+                <Heart size={22} fill={isWishlisted(product.id) ? 'currentColor' : 'none'} />
+              </button>
+            </div>
 
             <div className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-green-800 bg-green-50 py-3 rounded-lg border border-green-100">
               <Package size={18} />
@@ -401,6 +431,9 @@ export default function ProductDetail() {
         </div>
       </div>
 
+      {/* Recently viewed strip */}
+      <RecentlyViewed />
+
       {/* Mobile sticky bottom CTA */}
       <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-200 px-4 py-3 shadow-2xl">
         <div className="flex items-center gap-3">
@@ -419,6 +452,18 @@ export default function ProductDetail() {
             {isOutOfStock ? 'Out of Stock' : 'Add to Cart'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoPill({ icon, title, sub }: { icon: React.ReactNode; title: string; sub: string }) {
+  return (
+    <div className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+      <div className="text-gray-700 mt-0.5">{icon}</div>
+      <div>
+        <p className="text-sm font-bold text-gray-900">{title}</p>
+        <p className="text-xs text-gray-500">{sub}</p>
       </div>
     </div>
   );
