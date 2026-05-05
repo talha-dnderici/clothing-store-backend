@@ -74,6 +74,13 @@ export const api = {
   getMyOrders(token: string) {
     return request('/orders', undefined, token);
   },
+  updateOrderStatus(token: string, orderId: string, status: string) {
+    return request(
+      `/orders/${orderId}/status`,
+      { method: 'PATCH', body: JSON.stringify({ status }) },
+      token,
+    );
+  },
   getManagerOrders(token: string) {
     return request('/manager/orders', undefined, token);
   },
