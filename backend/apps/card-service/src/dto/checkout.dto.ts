@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsString } from 'class-validator';
 
 export class CheckoutDto {
   @IsString()
@@ -10,7 +10,6 @@ export class CheckoutDto {
   @IsString()
   deliveryAddress!: string;
 
-  @IsOptional()
-  @IsBoolean()
-  paymentConfirmed?: boolean;
+  @IsString()
+  paymentId!: string;
 }

@@ -58,6 +58,7 @@ export default function Checkout() {
       return 'Card number must be 16 digits';
     if (!/^\d{2}\/\d{2}$/.test(form.expiry)) return 'Expiry must be MM/YY';
     if (!/^\d{3,4}$/.test(form.cvc)) return 'CVC must be 3 or 4 digits';
+    if (!user?.id) return 'Please sign in again before checkout';
     return null;
   };
 
@@ -73,8 +74,23 @@ export default function Checkout() {
 
     try {
       const token = localStorage.getItem('token') || '';
+      if (!token) {
+        throw new Error('Authentication is required');
+      }
+
+      const deliveryAddress = `${form.address}, ${form.city} ${form.postalCode}`.trim();
+
+      await api.clearCart(user!.id!);
+      for (const item of items) {
+        await api.addItemToCart({
+          userId: user!.id,
+          productId: item.id,
+          quantity: item.quantity,
+        });
+      }
+
       const orderRes = await api.checkout(token, {
-        deliveryAddress: `${form.address}, ${form.city} ${form.postalCode}`.trim(),
+        deliveryAddress,
       });
       const data = orderRes.data;
 

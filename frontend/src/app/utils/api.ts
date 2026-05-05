@@ -65,6 +65,9 @@ export const api = {
   addItemToCart(body: Record<string, unknown>) {
     return request('/cart/items', { method: 'POST', body: JSON.stringify(body) });
   },
+  clearCart(userId: string) {
+    return request(`/cart/${userId}`, { method: 'DELETE' });
+  },
   checkout(token: string, body: Record<string, unknown>) {
     return request('/orders/checkout', { method: 'POST', body: JSON.stringify(body) }, token);
   },

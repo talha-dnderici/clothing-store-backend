@@ -44,6 +44,21 @@ class CheckoutRequestDto {
   @IsOptional()
   @IsString()
   deliveryAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentId?: string;
+}
+
+class MockPaymentRequestDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  amount?: number;
+
+  @IsOptional()
+  @IsString()
+  orderId?: string;
 }
 
 
@@ -576,6 +591,21 @@ export class AppController {
     return this.sendMessage(this.cardClient, 'card.clearCart', params);
   }
 
+  @Post('payments/mock')
+  @HttpCode(HttpStatus.OK)
+  async createMockPayment(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: MockPaymentRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+
+    return this.sendMessage(this.cardClient, 'card.mockPayment', {
+      userId: authUser.sub,
+      amount: dto.amount,
+      orderId: dto.orderId,
+    });
+  }
+
   @Post('orders/checkout')
   @HttpCode(HttpStatus.CREATED)
   async checkout(
@@ -594,11 +624,21 @@ export class AppController {
       throw new BadRequestException('deliveryAddress is required');
     }
 
+    let paymentId = dto.paymentId?.trim();
+    if (!paymentId) {
+      const mockPayment = await this.sendMessage<{ paymentId: string }>(
+        this.cardClient,
+        'card.mockPayment',
+        { userId: authUser.sub },
+      );
+      paymentId = mockPayment.paymentId;
+    }
+
     return this.sendMessage(this.cardClient, 'card.checkout', {
       userId: authUser.sub,
       customerEmail: authUser.email,
       deliveryAddress,
-      paymentConfirmed: true,
+      paymentId,
     });
   }
 
