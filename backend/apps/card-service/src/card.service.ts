@@ -34,6 +34,14 @@ import {
   ProductDocument,
 } from '../../main-service/src/schemas/product.schema';
 
+type MockPaymentApproval = {
+  paymentId: string;
+  userId: string;
+  amount: number;
+  approvedAt: Date;
+  orderId?: string | null;
+};
+
 @Injectable()
 export class CardService {
   constructor(
@@ -52,6 +60,7 @@ export class CardService {
   private readonly deliveryStatusOrder = ['processing', 'in-transit', 'delivered'] as const;
   private readonly invoiceSiteName = 'aura-clothing.com';
   private readonly invoiceSupportEmail = 'support@aura-clothing.com';
+  private readonly mockPaymentApprovals = new Map<string, MockPaymentApproval>();
 
   private handleServiceError(error: unknown, fallbackMessage: string): never {
     if (error instanceof HttpException) {
@@ -927,6 +936,17 @@ export class CardService {
     return 'processing';
   }
 
+  private consumeMockPaymentApproval(userId: string, paymentId: string) {
+    const approval = this.mockPaymentApprovals.get(paymentId);
+
+    if (!approval || approval.userId !== userId) {
+      throw new BadRequestException('Payment must be confirmed before checkout');
+    }
+
+    this.mockPaymentApprovals.delete(paymentId);
+    return approval;
+  }
+
   private isSameItem(
     left: { productId: string; selectedSize?: string; selectedColor?: string },
     right: { productId: string; selectedSize?: string; selectedColor?: string },
@@ -1283,6 +1303,7 @@ export class CardService {
     try {
       const userId = payload.userId.trim();
       const deliveryAddress = payload.deliveryAddress.trim();
+      const paymentId = payload.paymentId?.trim();
 
       if (!userId) {
         throw new BadRequestException('userId is required');
@@ -1292,9 +1313,11 @@ export class CardService {
         throw new BadRequestException('deliveryAddress is required');
       }
 
-      if (payload.paymentConfirmed !== true) {
-        throw new BadRequestException('Payment must be confirmed before checkout');
+      if (!paymentId) {
+        throw new BadRequestException('paymentId is required');
       }
+
+      this.consumeMockPaymentApproval(userId, paymentId);
 
       const card = await this.cardModel
         .findOneAndUpdate(
@@ -1629,8 +1652,9 @@ export class CardService {
   mockPayment(payload: { userId: string; amount?: number; orderId?: string }) {
     try {
       const amount = Number(payload.amount ?? 0);
+      const userId = payload.userId?.trim();
 
-      if (!payload.userId?.trim()) {
+      if (!userId) {
         throw new BadRequestException('userId is required');
       }
 
@@ -1638,9 +1662,18 @@ export class CardService {
         throw new BadRequestException('amount must be a positive number');
       }
 
+      const paymentId = `PAY-${Date.now()}`;
+      this.mockPaymentApprovals.set(paymentId, {
+        paymentId,
+        userId,
+        amount,
+        approvedAt: new Date(),
+        orderId: payload.orderId ?? null,
+      });
+
       return {
-        paymentId: `PAY-${Date.now()}`,
-        userId: payload.userId,
+        paymentId,
+        userId,
         orderId: payload.orderId ?? null,
         amount,
         status: 'approved',
