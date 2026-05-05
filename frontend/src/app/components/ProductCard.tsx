@@ -1,17 +1,34 @@
 import React from 'react';
-import { ShoppingCart, Star, Eye } from 'lucide-react';
+import { ShoppingCart, Star, Eye, Heart } from 'lucide-react';
 import { Link } from 'react-router';
 import { CatalogProduct } from '../types/catalog';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
+import { useWishlist } from '../context/WishlistContext';
+import { LazyImage } from './LazyImage';
 
 interface ProductCardProps {
   product: CatalogProduct;
+  index?: number;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({ product, index }) => {
   const { addToCart } = useCart();
   const { showToast } = useToast();
+  const { toggleWishlist, isWishlisted } = useWishlist();
+  const wished = isWishlisted(product.id);
+
+  const handleHeart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleWishlist(product.id);
+    showToast({
+      title: wished ? 'Removed from wishlist' : 'Added to wishlist',
+      description: product.name,
+      image: product.imageUrl,
+      variant: 'info',
+    });
+  };
   const isOutOfStock = product.stockQuantity === 0;
   const isLowStock = product.stockQuantity > 0 && product.stockQuantity <= 5;
   const displayPrice = product.effectivePrice ?? product.price;
@@ -41,16 +58,27 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       data-testid="product-card"
       data-out-of-stock={isOutOfStock ? 'true' : 'false'}
       aria-disabled={isOutOfStock}
-      className={`group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1 border border-gray-100 ${
+      style={{ animationDelay: `${Math.min((index ?? 0) * 40, 400)}ms` }}
+      className={`group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1 border border-gray-100 animate-fade-up ${
         isOutOfStock ? 'opacity-70' : ''
       }`}
     >
       <Link to={`/product/${product.id}`} className="relative aspect-[4/5] w-full overflow-hidden bg-gray-100 block">
-        <img
+        <LazyImage
           src={product.imageUrl}
           alt={product.name}
-          className="h-full w-full object-cover object-center transition-transform duration-700 group-hover:scale-110"
+          className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-110"
         />
+
+        <button
+          onClick={handleHeart}
+          aria-label={wished ? 'Remove from wishlist' : 'Add to wishlist'}
+          className={`absolute top-3 right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full backdrop-blur-sm shadow-md transition-all active:scale-90 ${
+            wished ? 'bg-red-500 text-white' : 'bg-white/90 text-gray-700 hover:bg-white'
+          }`}
+        >
+          <Heart size={16} fill={wished ? 'currentColor' : 'none'} />
+        </button>
         {/* Quick-view hint overlay */}
         {!isOutOfStock && (
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4">
@@ -70,7 +98,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </div>
         )}
         {product.discountActive && !isOutOfStock && (
-          <div className="absolute right-3 top-3 rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white uppercase tracking-wider shadow-lg">
+          <div className="absolute right-3 top-14 rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white uppercase tracking-wider shadow-lg">
             {product.discountRate}% Off
           </div>
         )}
@@ -86,10 +114,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </h3>
 
           <div className="flex items-center gap-1 mb-3">
-            {[1, 2, 3, 4, 5].map((star) => (
-              <Star key={star} size={14} className={star <= Math.round(product.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'} />
-            ))}
-            <span className="text-xs text-gray-500 ml-1">({product.rating})</span>
+            {product.rating > 0 ? (
+              <>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Star key={star} size={14} className={star <= Math.round(product.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'} />
+                ))}
+                <span className="text-xs text-gray-500 ml-1">({product.rating})</span>
+              </>
+            ) : (
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">New</span>
+            )}
           </div>
 
           <div className="flex items-end justify-between mb-4">

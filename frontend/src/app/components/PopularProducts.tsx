@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import { CatalogProduct } from '../types/catalog';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
+import { LazyImage } from './LazyImage';
 
 interface PopularProductsProps {
   products: CatalogProduct[];
@@ -51,10 +52,10 @@ export const PopularProducts: React.FC<PopularProductsProps> = ({ products }) =>
             <div key={product.id} className="flex-shrink-0 w-48 lg:w-auto snap-start group">
               <div className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-gray-100 mb-3 shadow-sm group-hover:shadow-xl transition-shadow duration-300">
                 <Link to={`/product/${product.id}`}>
-                  <img
+                  <LazyImage
                     src={product.imageUrl}
                     alt={product.name}
-                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+                    className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-110"
                   />
                 </Link>
                 <span className="absolute top-2 left-2 flex h-7 w-7 items-center justify-center rounded-full bg-white/90 backdrop-blur-sm text-xs font-extrabold text-gray-900 shadow-md">
@@ -79,10 +80,14 @@ export const PopularProducts: React.FC<PopularProductsProps> = ({ products }) =>
                 <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-0.5">{product.category}</p>
                 <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-1">{product.name}</h3>
                 <div className="flex items-center justify-between mt-1.5">
-                  <div className="flex items-center gap-1">
-                    <Star size={12} className="fill-yellow-400 text-yellow-400" />
-                    <span className="text-xs font-semibold text-gray-700">{product.rating}</span>
-                  </div>
+                  {product.rating > 0 ? (
+                    <div className="flex items-center gap-1">
+                      <Star size={12} className="fill-yellow-400 text-yellow-400" />
+                      <span className="text-xs font-semibold text-gray-700">{product.rating}</span>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">New</span>
+                  )}
                   <span className="text-sm font-bold text-gray-900 tabular-nums">${product.price.toFixed(2)}</span>
                 </div>
               </Link>

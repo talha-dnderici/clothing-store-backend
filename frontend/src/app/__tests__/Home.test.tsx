@@ -9,7 +9,7 @@ vi.mock('react-router', async () => {
   const actual = await vi.importActual('react-router');
   return {
     ...actual,
-    useOutletContext: () => ({ searchQuery: '', activeCategory: 'All' }),
+    useOutletContext: () => ({ searchQuery: '', activeCategory: 'All', clearFilters: () => {} }),
   };
 });
 
@@ -36,6 +36,7 @@ vi.mock('../components/HeroBanner', () => ({ HeroBanner: () => <div data-testid=
 vi.mock('../components/PopularProducts', () => ({ PopularProducts: () => <div data-testid="popular-products" /> }));
 vi.mock('../components/FilterSection', () => ({ FilterSection: ({count}: any) => <div data-testid="filter-section">({count} items)</div> }));
 vi.mock('../components/ProductGrid', () => ({ ProductGrid: ({products}: any) => <div data-testid="product-grid">{products.map((p: any) => p.name).join(', ')}</div> }));
+vi.mock('../components/RecentlyViewed', () => ({ RecentlyViewed: () => <div data-testid="recently-viewed" /> }));
 
 describe('Home Product Listing', () => {
   beforeEach(() => {
