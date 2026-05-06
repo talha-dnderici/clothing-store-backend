@@ -21,7 +21,6 @@ export default function Auth() {
     const formData = new FormData(e.currentTarget);
     const email = String(formData.get('email') || '').trim();
     const fullName = String(formData.get('fullName') || '').trim();
-    const taxId = String(formData.get('taxId') || '').trim();
     const address = String(formData.get('address') || '').trim();
 
     try {
@@ -46,7 +45,6 @@ export default function Auth() {
           name: fullName,
           email,
           password,
-          taxId,
           address,
         });
 
@@ -164,16 +162,6 @@ export default function Auth() {
                       id="fullName"
                       name="fullName"
                       placeholder="Jane Doe"
-                      className="block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black sm:text-sm transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="taxId" className="block text-sm font-medium text-gray-700 mb-1.5">Tax ID</label>
-                    <input
-                      type="text"
-                      id="taxId"
-                      name="taxId"
-                      placeholder="XX-XXXXXXX"
                       className="block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-black focus:outline-none focus:ring-1 focus:ring-black sm:text-sm transition-colors"
                     />
                   </div>

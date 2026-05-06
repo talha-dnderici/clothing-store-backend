@@ -11,15 +11,18 @@ import { CartProvider, useCart } from '../context/CartContext';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { api } from '../utils/api';
 
-Object.defineProperty(window, 'localStorage', {
-  value: { getItem: vi.fn(() => 'fake-token') },
-});
-
 vi.mock('../utils/api', () => ({
   api: {
     checkout: vi.fn(),
   }
 }));
+
+vi.stubGlobal('localStorage', {
+  getItem: vi.fn(),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+});
 
 const Seed = () => {
   const { addToCart } = useCart();

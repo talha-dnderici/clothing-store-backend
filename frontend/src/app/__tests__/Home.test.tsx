@@ -34,6 +34,7 @@ vi.mock('../context/CartContext', () => ({
 vi.mock('../components/CartDrawer', () => ({ CartDrawer: () => <div data-testid="cart-drawer" /> }));
 vi.mock('../components/HeroBanner', () => ({ HeroBanner: () => <div data-testid="hero-banner" /> }));
 vi.mock('../components/PopularProducts', () => ({ PopularProducts: () => <div data-testid="popular-products" /> }));
+vi.mock('../components/NewArrivals', () => ({ NewArrivals: () => <div data-testid="new-arrivals" /> }));
 vi.mock('../components/FilterSection', () => ({ FilterSection: ({count}: any) => <div data-testid="filter-section">({count} items)</div> }));
 vi.mock('../components/ProductGrid', () => ({ ProductGrid: ({products}: any) => <div data-testid="product-grid">{products.map((p: any) => p.name).join(', ')}</div> }));
 vi.mock('../components/RecentlyViewed', () => ({ RecentlyViewed: () => <div data-testid="recently-viewed" /> }));
