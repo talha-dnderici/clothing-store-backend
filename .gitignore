@@ -8,3 +8,7 @@ frontend/.env.local
 
 # Local IDE / CLI tooling — not part of the project deliverable
 .claude/
+
+# Generated artifacts
+preview-products.html
+frontend/tsconfig.tsbuildinfo
