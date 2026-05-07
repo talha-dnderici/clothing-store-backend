@@ -15,6 +15,7 @@ export interface CatalogProduct {
   rating: number;
   ratingCount: number;
   category: string;
+  categories: string[];
 }
 
 export interface CatalogCategory {

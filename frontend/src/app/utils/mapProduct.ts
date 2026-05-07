@@ -28,6 +28,7 @@ interface BackendProduct {
   ratingCount?: number;
   category?: string;
   categoryName?: string;
+  categories?: Array<{ id?: string; name?: string; slug?: string } | string>;
 }
 
 export function mapProduct(raw: BackendProduct): CatalogProduct {
@@ -48,6 +49,11 @@ export function mapProduct(raw: BackendProduct): CatalogProduct {
     rating: raw.ratingAverage ?? raw.rating ?? 0,
     ratingCount: raw.ratingCount ?? 0,
     category: raw.categoryName || raw.category || 'Uncategorized',
+    categories: Array.isArray(raw.categories)
+      ? raw.categories
+          .map((c) => (typeof c === 'string' ? c : c?.name ?? ''))
+          .filter(Boolean)
+      : [raw.categoryName || raw.category || ''].filter(Boolean),
   };
 }
 

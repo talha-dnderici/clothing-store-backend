@@ -12,6 +12,26 @@ import { LazyImage } from '../components/LazyImage';
 import { RecentlyViewed } from '../components/RecentlyViewed';
 import { CatalogProduct } from '../types/catalog';
 
+const APPAREL_SIZES = ['XS', 'S', 'M', 'L', 'XL'];
+const PANTS_SIZES = ['28', '30', '32', '34', '36'];
+const MEN_SHOE_SIZES = ['40', '41', '42', '43', '44', '45', '46'];
+const WOMEN_SHOE_SIZES = ['36', '37', '38', '39', '40'];
+const UNISEX_SHOE_SIZES = ['36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46'];
+const APPAREL_CATEGORIES = new Set(['Hoodies', 'Jackets', 'Skirts', 'T-Shirts']);
+const PANTS_CATEGORIES = new Set(['Jeans', 'Pants']);
+
+function getAvailableSizes(category: string, categories: string[] = []): string[] {
+  if (category === 'Shoes') {
+    const set = new Set(categories);
+    if (set.has('Men') && !set.has('Women')) return MEN_SHOE_SIZES;
+    if (set.has('Women') && !set.has('Men')) return WOMEN_SHOE_SIZES;
+    return UNISEX_SHOE_SIZES;
+  }
+  if (PANTS_CATEGORIES.has(category)) return PANTS_SIZES;
+  if (APPAREL_CATEGORIES.has(category)) return APPAREL_SIZES;
+  return [];
+}
+
 export default function ProductDetail() {
   const { id } = useParams();
   const { addToCart } = useCart();
@@ -24,6 +44,7 @@ export default function ProductDetail() {
   const [quantity, setQuantity] = useState(1);
   const [addedFeedback, setAddedFeedback] = useState(false);
   const [activeImage, setActiveImage] = useState('');
+  const [selectedSize, setSelectedSize] = useState<string>('');
 
   // Review states
   const [publicComments, setPublicComments] = useState<any[]>([]);
@@ -51,6 +72,7 @@ export default function ProductDetail() {
     let cancelled = false;
     setIsLoading(true);
     setQuantity(1);
+    setSelectedSize('');
     setErrorMessage('');
 
     api.getProduct(id!)
@@ -117,11 +139,22 @@ export default function ProductDetail() {
   const isLowStock = product.stockQuantity > 0 && product.stockQuantity <= 5;
   const displayPrice = product.effectivePrice ?? product.price;
 
+  const availableSizes = getAvailableSizes(product.category, product.categories);
+
   const thumbnails: string[] = Array.isArray((product as any).images) && (product as any).images.length > 1
     ? (product as any).images
     : [];
 
   const handleAddToCart = () => {
+    if (availableSizes.length > 0 && !selectedSize) {
+      showToast({
+        title: 'Please select a size',
+        description: 'Choose a size before adding to cart.',
+        variant: 'info',
+      });
+      return;
+    }
+
     const success = addToCart({
       id: product.id,
       name: product.name,
@@ -133,7 +166,9 @@ export default function ProductDetail() {
     if (success) {
       showToast({
         title: `${quantity} × added to cart`,
-        description: product.name,
+        description: selectedSize
+          ? `${product.name} — Size ${selectedSize}`
+          : product.name,
         image: product.imageUrl,
         variant: 'success',
       });
@@ -288,6 +323,36 @@ export default function ProductDetail() {
 
           {/* Quantity + Add to Cart */}
           <div className="mt-auto space-y-4">
+            {availableSizes.length > 0 && (
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-sm font-bold uppercase tracking-wider text-gray-700">Size</span>
+                  {selectedSize && (
+                    <span className="text-sm text-gray-600">Selected: <strong>{selectedSize}</strong></span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {availableSizes.map((size) => {
+                    const isSelected = selectedSize === size;
+                    return (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => setSelectedSize(size)}
+                        className={`min-w-[3rem] rounded-lg border-2 px-3 py-2 text-sm font-bold transition-all ${
+                          isSelected
+                            ? 'border-black bg-black text-white'
+                            : 'border-gray-200 bg-white text-gray-800 hover:border-gray-400'
+                        }`}
+                      >
+                        {size}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {!isOutOfStock && (
               <QuantitySelector quantity={quantity} maxStock={product.stockQuantity} onChange={setQuantity} />
             )}

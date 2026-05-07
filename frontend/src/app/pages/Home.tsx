@@ -54,14 +54,15 @@ function applyClientFilters(
     if (filters.priceMin !== null && product.price < filters.priceMin) return false;
     if (filters.priceMax !== null && product.price > filters.priceMax) return false;
 
-    // Type / gender via product.categories (each item: {name, slug})
-    const productCategoryNames: string[] = Array.isArray((product as any).categories)
-      ? (product as any).categories
-          .map((c: any) => c?.name)
-          .filter((n: unknown): n is string => typeof n === 'string')
-      : product.category
-      ? [product.category]
-      : [];
+    // Type / gender via product.categories — `mapProduct` normalises this to
+    // `string[]` (e.g. ["Hoodies", "Men"]). Falls back to the singular
+    // category if the array is missing.
+    const productCategoryNames: string[] =
+      Array.isArray(product.categories) && product.categories.length > 0
+        ? product.categories
+        : product.category
+        ? [product.category]
+        : [];
 
     if (filters.types.length > 0) {
       const matchesType = filters.types.some((t) => productCategoryNames.includes(t));
