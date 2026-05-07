@@ -99,6 +99,7 @@ async function main() {
     noGender: [],
     duplicateNames: [],
     emptyCategories: [],
+    multiGender: [], // Ürün hem (Men or Women) hem Unisex — Unisex'i kaldırmamız gerek
   };
 
   const byName = new Map();
@@ -127,6 +128,10 @@ async function main() {
 
     if (hasMen && hasWomen) {
       issues.bothGenders.push({ id: p._id.toString(), name: p.name, categories: names });
+    }
+
+    if (hasUnisex && (hasMen || hasWomen)) {
+      issues.multiGender.push({ id: p._id.toString(), name: p.name, categories: names });
     }
 
     if (!hasMen && !hasWomen && !hasUnisex && ids.length > 0) {
@@ -167,6 +172,11 @@ async function main() {
 
   console.log(`\nIn BOTH Men and Women (${issues.bothGenders.length}):`);
   for (const p of issues.bothGenders) {
+    console.log(`  ${p.id}  "${p.name}"  cats=[${p.categories.join(', ')}]`);
+  }
+
+  console.log(`\nIn Unisex AND a specific gender (${issues.multiGender.length}, will drop Unisex on --fix-all):`);
+  for (const p of issues.multiGender) {
     console.log(`  ${p.id}  "${p.name}"  cats=[${p.categories.join(', ')}]`);
   }
 
@@ -278,6 +288,20 @@ async function main() {
       manualFixed++;
     }
     console.log(`Applied ${manualFixed} manual reassignments.`);
+
+    console.log('\n=== Stripping Unisex from products that also have Men/Women ===');
+    let stripped = 0;
+    for (const p of issues.multiGender) {
+      const product = await Product.findById(p.id).exec();
+      if (!product) continue;
+      const next = (product.categoryIds ?? []).map(String).filter((id) => id !== unisexId);
+      product.categoryIds = next;
+      await product.save();
+      const newNames = next.map((id) => catById.get(id)?.name ?? id);
+      console.log(`  stripped: "${product.name}"  -> [${newNames.join(', ')}]`);
+      stripped++;
+    }
+    console.log(`Stripped Unisex from ${stripped} product(s).`);
 
     console.log('\n=== Deleting older duplicates ===');
     let deleted = 0;
