@@ -88,22 +88,21 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onLogoClick }) => {
               <button className="lg:hidden text-gray-500 hover:text-gray-900 transition-colors">
                 <Menu size={24} />
               </button>
-              <Link
-                to="/"
-                onClick={(e) => {
+              <button
+                type="button"
+                onClick={() => {
                   onLogoClick?.();
                   if (location.pathname === '/') {
-                    e.preventDefault();
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   } else {
-                    e.preventDefault();
                     navigate('/');
                   }
                 }}
-                className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 transition-transform hover:-rotate-1"
+                className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 transition-transform hover:-rotate-1 cursor-pointer bg-transparent border-0 p-0"
+                data-testid="aura-logo"
               >
                 AURA.
-              </Link>
+              </button>
             </div>
 
             <div className="flex-1 max-w-2xl hidden sm:block">
