@@ -10,7 +10,7 @@ import {
   Package,
   Settings,
 } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
@@ -20,9 +20,12 @@ import { isAdminEmail } from '../utils/admin';
 
 interface NavbarProps {
   onSearch: (query: string) => void;
+  onLogoClick?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onSearch, onLogoClick }) => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { totalItems } = useCart();
   const { wishlist } = useWishlist();
@@ -87,6 +90,16 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch }) => {
               </button>
               <Link
                 to="/"
+                onClick={(e) => {
+                  onLogoClick?.();
+                  if (location.pathname === '/') {
+                    e.preventDefault();
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  } else {
+                    e.preventDefault();
+                    navigate('/');
+                  }
+                }}
                 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 transition-transform hover:-rotate-1"
               >
                 AURA.
