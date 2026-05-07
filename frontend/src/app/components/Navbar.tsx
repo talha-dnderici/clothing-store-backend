@@ -104,7 +104,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
                   data-testid="admin-playground-link"
                 >
                   <FlaskConical size={18} />
-                  <span>Manager Playground</span>
+                  <span>Operations Console</span>
                 </Link>
               )}
 
@@ -166,7 +166,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
                           className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 transition-colors"
                         >
                           <Settings size={16} className="text-emerald-600" />
-                          Admin Playground
+                          Operations Console
                         </Link>
                       )}
                       <div className="my-1 border-t border-gray-100" />

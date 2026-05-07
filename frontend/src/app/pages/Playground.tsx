@@ -1,18 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
+  CheckSquare,
   Clock,
   DollarSign,
   ExternalLink,
   FileText,
+  ListChecks,
   Mail,
   MessageSquare,
   PackageCheck,
   RefreshCw,
   Send,
   ShieldCheck,
+  Square,
   Star,
   Tag,
+  X,
   XCircle,
 } from 'lucide-react';
 import { api } from '../utils/api';
@@ -146,11 +150,15 @@ export default function Playground() {
   const [discountInput, setDiscountInput] = useState('0');
   const [discountActive, setDiscountActive] = useState(false);
   const [busyAction, setBusyAction] = useState('');
+  const [bulkApproveMode, setBulkApproveMode] = useState(false);
+  const [selectedPendingIds, setSelectedPendingIds] = useState<Set<string>>(new Set());
+  const [bulkAdvanceMode, setBulkAdvanceMode] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [logEntries, setLogEntries] = useState<LogEntry[]>([
     {
       id: Date.now(),
       tone: 'info',
-      message: 'Playground ready.',
+      message: 'Operations Console ready.',
     },
   ]);
 
@@ -229,11 +237,15 @@ export default function Playground() {
 
     setRatingSummary(ratingsResponse.data as RatingSummary);
     setPublicComments(commentsResponse.data as CommentItem[]);
+  };
 
-    if (manager?.token) {
-      const managerComments = await api.getManagerComments(manager.token, 'pending');
-      setPendingComments(managerComments.data as CommentItem[]);
-    }
+  // Pending comments are GLOBAL (cross-product), so they need their own
+  // refresher decoupled from `selectedProductId`. Used both by the auto-load
+  // effect on mount and by the Approval section's "Refresh Queue" button.
+  const refreshPendingComments = async () => {
+    if (!manager?.token) return;
+    const managerComments = await api.getManagerComments(manager.token, 'pending');
+    setPendingComments(managerComments.data as CommentItem[]);
   };
 
   const refreshOrders = async () => {
@@ -311,7 +323,7 @@ export default function Playground() {
 
     await api.reviewComment(manager.token, commentId, approvalStatus);
     addLog(`Comment ${approvalStatus}.`, approvalStatus === 'approved' ? 'ok' : 'info');
-    await refreshFeedback();
+    await Promise.all([refreshFeedback(), refreshPendingComments()]);
   };
 
   const checkout = async () => {
@@ -363,6 +375,77 @@ export default function Playground() {
     await refreshOrders();
   };
 
+  const enterBulkApprove = () => {
+    setSelectedPendingIds(new Set(pendingComments.map((comment) => comment.id)));
+    setBulkApproveMode(true);
+  };
+
+  const exitBulkApprove = () => {
+    setBulkApproveMode(false);
+    setSelectedPendingIds(new Set());
+  };
+
+  const togglePendingSelection = (id: string) => {
+    setSelectedPendingIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const confirmBulkApprove = async () => {
+    if (!manager) throw new Error('Manager login is required.');
+    const ids = [...selectedPendingIds];
+    if (!ids.length) throw new Error('Select at least one comment.');
+
+    for (const id of ids) {
+      await api.reviewComment(manager.token, id, 'approved');
+    }
+    addLog(`Approved ${ids.length} comment${ids.length > 1 ? 's' : ''}.`, 'ok');
+    exitBulkApprove();
+    await Promise.all([refreshPendingComments(), selectedProductId ? refreshFeedback() : Promise.resolve()]);
+  };
+
+  const enterBulkAdvance = () => {
+    const advanceable = managerOrders
+      .filter((order) => nextOrderStatus(order.status))
+      .map((order) => order.id);
+    setSelectedOrderIds(new Set(advanceable));
+    setBulkAdvanceMode(true);
+  };
+
+  const exitBulkAdvance = () => {
+    setBulkAdvanceMode(false);
+    setSelectedOrderIds(new Set());
+  };
+
+  const toggleOrderSelection = (id: string) => {
+    setSelectedOrderIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const confirmBulkAdvance = async () => {
+    if (!manager) throw new Error('Manager login is required.');
+    const targets = managerOrders.filter(
+      (order) => selectedOrderIds.has(order.id) && nextOrderStatus(order.status),
+    );
+    if (!targets.length) throw new Error('Select at least one advanceable order.');
+
+    for (const order of targets) {
+      const nextStatus = nextOrderStatus(order.status);
+      if (!nextStatus) continue;
+      await api.updateManagerOrderStatus(manager.token, order.id, nextStatus);
+    }
+    addLog(`Advanced ${targets.length} order${targets.length > 1 ? 's' : ''}.`, 'ok');
+    exitBulkAdvance();
+    await refreshOrders();
+  };
+
   const updatePricing = async () => {
     if (!manager || !selectedProduct) throw new Error('Manager login and product are required.');
     const price = Number(priceInput);
@@ -389,6 +472,33 @@ export default function Playground() {
     });
   }, []);
 
+  // Silently make sure both demo test accounts exist and are signed in. The
+  // Playground actions below all depend on having a customer + manager token
+  // on hand, so we provision them on mount instead of asking the operator to
+  // click "Login Customer" / "Login Manager" every time.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await Promise.all([loginAs('customer'), loginAs('manager')]);
+        if (!cancelled) addLog('Test sessions ready.', 'ok');
+      } catch (error) {
+        if (!cancelled) {
+          addLog(
+            error instanceof Error
+              ? `Auto-login failed: ${error.message}`
+              : 'Auto-login failed.',
+            'error',
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (selectedProductId) {
       refreshFeedback(selectedProductId).catch((error) => {
@@ -408,6 +518,23 @@ export default function Playground() {
     refreshOrders().catch(() => undefined);
   }, [customer?.token, manager?.token]);
 
+  // Auto-load the global pending-comments queue as soon as the manager
+  // session is available. Without this the Approval section stays empty
+  // until the manager picks a product (since `refreshFeedback` was the only
+  // path that fetched pending comments before).
+  useEffect(() => {
+    if (!manager?.token) return;
+    refreshPendingComments().catch((error) => {
+      addLog(
+        error instanceof Error
+          ? `Pending queue refresh failed: ${error.message}`
+          : 'Pending queue refresh failed.',
+        'error',
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manager?.token]);
+
   return (
     <div className="bg-[#f7f4ef]">
       <section className="border-b border-stone-200 bg-white">
@@ -415,28 +542,25 @@ export default function Playground() {
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-bold uppercase tracking-widest text-teal-800">
               <ShieldCheck size={14} />
-              Manager Playground
+              Operations Console
             </div>
             <h1 className="max-w-3xl text-3xl font-extrabold tracking-tight text-stone-950 sm:text-4xl">
-              AURA operations test bench
+              AURA Operations Console
             </h1>
-            <div className="mt-5 grid max-w-3xl grid-cols-1 gap-3 text-sm sm:grid-cols-3">
-              <div className="rounded-lg border border-stone-200 bg-[#fffaf2] p-4">
-                <div className="font-bold text-stone-900">Customer</div>
-                <div className="mt-1 text-stone-600">customer@aura.test</div>
-              </div>
-              <div className="rounded-lg border border-stone-200 bg-[#f2fbf8] p-4">
-                <div className="font-bold text-stone-900">Manager</div>
-                <div className="mt-1 text-stone-600">manager@aura.test</div>
-              </div>
+            <p className="mt-4 max-w-2xl text-sm text-stone-600">
+              End-to-end operations console for managers — drive customer purchases,
+              moderate comments, walk orders through delivery, and tune
+              pricing/discounts without leaving the page.
+            </p>
+            <div className="mt-5">
               <a
                 href="http://localhost:8025"
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center justify-between rounded-lg border border-stone-200 bg-[#f4f7ff] p-4 font-bold text-stone-900 hover:border-indigo-300"
+                className="inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-[#f4f7ff] px-4 py-2.5 text-sm font-bold text-stone-900 hover:border-indigo-300"
               >
-                Mailpit
-                <ExternalLink size={17} />
+                Open Mailpit (invoice mailbox)
+                <ExternalLink size={15} />
               </a>
             </div>
           </div>
@@ -484,62 +608,6 @@ export default function Playground() {
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-          <section className="rounded-lg border border-stone-200 bg-white p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-extrabold text-stone-950">Access</h2>
-                <p className="text-sm text-stone-500">password123</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => run('ensure-accounts', ensureAccounts)}
-                disabled={Boolean(busyAction)}
-                className="inline-flex items-center gap-2 rounded-md border border-stone-300 px-3 py-2 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
-              >
-                <RefreshCw size={16} />
-                Ensure
-              </button>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => run('login-customer', () => loginAs('customer'))}
-                disabled={Boolean(busyAction)}
-                className="rounded-md bg-stone-950 px-4 py-3 text-sm font-bold text-white hover:bg-stone-800 disabled:opacity-50"
-              >
-                Login Customer
-              </button>
-              <button
-                type="button"
-                onClick={() => run('login-manager', () => loginAs('manager'))}
-                disabled={Boolean(busyAction)}
-                className="rounded-md bg-teal-700 px-4 py-3 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-50"
-              >
-                Login Manager
-              </button>
-            </div>
-
-            <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-              <div className="rounded-lg border border-stone-200 p-3">
-                <div className="text-xs font-bold uppercase tracking-wider text-stone-500">
-                  Customer
-                </div>
-                <div className="mt-1 font-semibold text-stone-900">
-                  {customer?.user.name ?? 'Not logged in'}
-                </div>
-              </div>
-              <div className="rounded-lg border border-stone-200 p-3">
-                <div className="text-xs font-bold uppercase tracking-wider text-stone-500">
-                  Manager
-                </div>
-                <div className="mt-1 font-semibold text-stone-900">
-                  {manager?.user.name ?? 'Not logged in'}
-                </div>
-              </div>
-            </div>
-          </section>
-
           <section className="rounded-lg border border-stone-200 bg-white p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
@@ -719,44 +787,102 @@ export default function Playground() {
               <h2 className="text-xl font-extrabold text-stone-950">Approval</h2>
             </div>
 
-            <button
-              type="button"
-              onClick={() => run('refresh-feedback', () => refreshFeedback())}
-              disabled={Boolean(busyAction)}
-              className="mb-4 inline-flex w-full items-center justify-center gap-2 rounded-md border border-stone-300 px-4 py-2.5 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
-            >
-              <RefreshCw size={16} />
-              Refresh Queue
-            </button>
+            {bulkApproveMode ? (
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => run('bulk-approve', confirmBulkApprove)}
+                  disabled={Boolean(busyAction) || !selectedPendingIds.size}
+                  className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <CheckSquare size={16} />
+                  Approve Selected ({selectedPendingIds.size})
+                </button>
+                <button
+                  type="button"
+                  onClick={exitBulkApprove}
+                  disabled={Boolean(busyAction)}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-stone-300 px-4 py-2.5 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+                >
+                  <X size={16} />
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => run('refresh-pending', refreshPendingComments)}
+                  disabled={Boolean(busyAction)}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-stone-300 px-4 py-2.5 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+                >
+                  <RefreshCw size={16} />
+                  Refresh Queue
+                </button>
+                <button
+                  type="button"
+                  onClick={enterBulkApprove}
+                  disabled={Boolean(busyAction) || !pendingComments.length}
+                  className="inline-flex items-center justify-center gap-2 rounded-md bg-stone-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-stone-800 disabled:opacity-50"
+                >
+                  <ListChecks size={16} />
+                  Approve All
+                </button>
+              </div>
+            )}
 
             <div className="space-y-3">
-              {pendingComments.map((comment) => (
-                <div key={comment.id} className="rounded-lg border border-stone-200 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="font-bold text-stone-900">{comment.customerName}</span>
-                    <span className={`rounded-md border px-2 py-1 text-xs font-bold ${statusClass(comment.approvalStatus)}`}>
-                      {comment.approvalStatus}
-                    </span>
+              {pendingComments.map((comment) => {
+                const isSelected = selectedPendingIds.has(comment.id);
+                return (
+                  <div
+                    key={comment.id}
+                    className={`rounded-lg border p-3 ${
+                      bulkApproveMode && isSelected
+                        ? 'border-emerald-300 bg-emerald-50'
+                        : 'border-stone-200'
+                    }`}
+                  >
+                    <div className="mb-2 flex items-start gap-3">
+                      {bulkApproveMode ? (
+                        <button
+                          type="button"
+                          onClick={() => togglePendingSelection(comment.id)}
+                          className="mt-0.5 text-stone-700 hover:text-stone-950"
+                          aria-label={isSelected ? 'Deselect' : 'Select'}
+                        >
+                          {isSelected ? <CheckSquare size={20} className="text-emerald-700" /> : <Square size={20} />}
+                        </button>
+                      ) : null}
+                      <div className="flex flex-1 items-center justify-between">
+                        <span className="font-bold text-stone-900">{comment.customerName}</span>
+                        <span className={`rounded-md border px-2 py-1 text-xs font-bold ${statusClass(comment.approvalStatus)}`}>
+                          {comment.approvalStatus}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="mb-3 text-sm leading-6 text-stone-600">{comment.content}</p>
+                    {!bulkApproveMode ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => run('approve-comment', () => reviewComment(comment.id, 'approved'))}
+                          className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => run('reject-comment', () => reviewComment(comment.id, 'rejected'))}
+                          className="rounded-md bg-rose-600 px-3 py-2 text-sm font-bold text-white hover:bg-rose-700"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                  <p className="mb-3 text-sm leading-6 text-stone-600">{comment.content}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => run('approve-comment', () => reviewComment(comment.id, 'approved'))}
-                      className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => run('reject-comment', () => reviewComment(comment.id, 'rejected'))}
-                      className="rounded-md bg-rose-600 px-3 py-2 text-sm font-bold text-white hover:bg-rose-700"
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {!pendingComments.length ? (
                 <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
                   No pending comments.
@@ -848,22 +974,80 @@ export default function Playground() {
               <button
                 type="button"
                 onClick={() => run('refresh-orders', refreshOrders)}
-                className="inline-flex items-center gap-2 rounded-md border border-stone-300 px-3 py-2 text-sm font-bold text-stone-800 hover:bg-stone-50"
+                disabled={Boolean(busyAction) || bulkAdvanceMode}
+                className="inline-flex items-center gap-2 rounded-md border border-stone-300 px-3 py-2 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
               >
                 <RefreshCw size={16} />
                 Refresh
               </button>
             </div>
 
+            {bulkAdvanceMode ? (
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => run('bulk-advance', confirmBulkAdvance)}
+                  disabled={Boolean(busyAction) || !selectedOrderIds.size}
+                  className="inline-flex items-center justify-center gap-2 rounded-md bg-indigo-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-800 disabled:opacity-50"
+                >
+                  <CheckSquare size={16} />
+                  Advance Selected ({selectedOrderIds.size})
+                </button>
+                <button
+                  type="button"
+                  onClick={exitBulkAdvance}
+                  disabled={Boolean(busyAction)}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-stone-300 px-4 py-2.5 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+                >
+                  <X size={16} />
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={enterBulkAdvance}
+                disabled={
+                  Boolean(busyAction) ||
+                  !managerOrders.some((order) => nextOrderStatus(order.status))
+                }
+                className="mb-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-stone-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-stone-800 disabled:opacity-50"
+              >
+                <ListChecks size={16} />
+                Advance All
+              </button>
+            )}
+
             <div className="space-y-3">
               {managerOrders.map((order) => {
                 const nextStatus = nextOrderStatus(order.status);
+                const isSelected = selectedOrderIds.has(order.id);
                 return (
-                  <div key={order.id} className="rounded-lg border border-stone-200 p-3">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <div className="font-bold text-stone-900">{order.customerEmail}</div>
-                        <div className="text-sm text-stone-500">{money(order.totalPrice)}</div>
+                  <div
+                    key={order.id}
+                    className={`rounded-lg border p-3 ${
+                      bulkAdvanceMode && isSelected
+                        ? 'border-indigo-300 bg-indigo-50'
+                        : 'border-stone-200'
+                    }`}
+                  >
+                    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                      <div className="flex items-start gap-3">
+                        {bulkAdvanceMode ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleOrderSelection(order.id)}
+                            disabled={!nextStatus}
+                            className="mt-0.5 text-stone-700 hover:text-stone-950 disabled:opacity-30"
+                            aria-label={isSelected ? 'Deselect' : 'Select'}
+                          >
+                            {isSelected ? <CheckSquare size={20} className="text-indigo-700" /> : <Square size={20} />}
+                          </button>
+                        ) : null}
+                        <div>
+                          <div className="font-bold text-stone-900">{order.customerEmail}</div>
+                          <div className="text-sm text-stone-500">{money(order.totalPrice)}</div>
+                        </div>
                       </div>
                       <span className={`rounded-md border px-2 py-1 text-xs font-bold ${statusClass(order.status)}`}>
                         {order.status}
@@ -872,14 +1056,16 @@ export default function Playground() {
                     <div className="mb-3 text-sm text-stone-600">
                       {order.items.map((item) => `${item.quantity} x ${item.productName}`).join(', ')}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => run('update-order', () => updateOrderStatus(order))}
-                      disabled={!nextStatus}
-                      className="rounded-md bg-indigo-700 px-3 py-2 text-sm font-bold text-white hover:bg-indigo-800 disabled:bg-stone-200 disabled:text-stone-500"
-                    >
-                      {nextStatus ? `Move to ${nextStatus}` : 'Delivered'}
-                    </button>
+                    {!bulkAdvanceMode ? (
+                      <button
+                        type="button"
+                        onClick={() => run('update-order', () => updateOrderStatus(order))}
+                        disabled={!nextStatus}
+                        className="rounded-md bg-indigo-700 px-3 py-2 text-sm font-bold text-white hover:bg-indigo-800 disabled:bg-stone-200 disabled:text-stone-500"
+                      >
+                        {nextStatus ? `Move to ${nextStatus}` : 'Delivered'}
+                      </button>
+                    ) : null}
                   </div>
                 );
               })}

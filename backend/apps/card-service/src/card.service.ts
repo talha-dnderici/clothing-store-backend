@@ -1437,7 +1437,20 @@ export class CardService {
         })),
       );
 
-      createdInvoice = await this.createInvoiceForOrder(createdOrder, false);
+      try {
+        createdInvoice = await this.createInvoiceForOrder(createdOrder, true);
+      } catch (emailError) {
+        // Don't fail the checkout if mail dispatch fails — the customer
+        // already paid. Fall back to creating the invoice without sending,
+        // and surface the failure via the returned emailStatus so the
+        // operator can re-send manually from the Orders page.
+        console.warn(
+          `Auto-email after checkout failed for order ${createdOrder._id}: ${
+            emailError instanceof Error ? emailError.message : String(emailError)
+          }`,
+        );
+        createdInvoice = await this.createInvoiceForOrder(createdOrder, false);
+      }
 
       return {
         order: this.sanitizeOrder(createdOrder),
