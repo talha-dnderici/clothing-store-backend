@@ -19,13 +19,26 @@ import { ReviewModal } from '../components/ReviewModal';
 
 type OrderItem = {
   productId?: string;
+  // Backend persists the product name on each order item as `productName`
+  // (used by the invoice PDF). We accept the alternate `name` shape as a
+  // fallback in case the API surface changes.
+  productName?: string;
   name?: string;
   quantity: number;
   unitPrice?: number;
   price?: number;
   imageUrl?: string;
+  productImage?: string;
   image?: string;
 };
+
+function getItemName(item: OrderItem): string {
+  return item.productName ?? item.name ?? 'Product';
+}
+
+function getItemImage(item: OrderItem): string | undefined {
+  return item.imageUrl ?? item.productImage ?? item.image;
+}
 
 type Order = {
   id?: string;
@@ -374,13 +387,15 @@ export default function Orders() {
                   <ul className="mt-5 grid gap-2 border-t border-gray-100 pt-4">
                     {order.items.slice(0, 4).map((item, idx) => {
                       const canReview = order.status === 'delivered' && item.productId;
+                      const itemName = getItemName(item);
+                      const itemImage = getItemImage(item);
                       return (
                         <li
                           key={idx}
                           className="flex items-center justify-between gap-3 text-sm text-gray-700"
                         >
                           <span className="truncate flex-1 min-w-0">
-                            {item.name ?? 'Product'} × {item.quantity}
+                            {itemName} × {item.quantity}
                           </span>
                           <span className="font-medium tabular-nums shrink-0">
                             ${Number(
@@ -393,8 +408,8 @@ export default function Orders() {
                               onClick={() =>
                                 setReviewTarget({
                                   productId: item.productId!,
-                                  productName: item.name ?? 'Product',
-                                  productImage: item.imageUrl ?? item.image,
+                                  productName: itemName,
+                                  productImage: itemImage,
                                 })
                               }
                               data-testid="review-product-btn"

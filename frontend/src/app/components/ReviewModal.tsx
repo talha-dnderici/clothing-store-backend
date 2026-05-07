@@ -71,8 +71,9 @@ export function ReviewModal({
     setSubmitting(true);
     setError(null);
     try {
+      // Backend's SubmitReviewRequestDto names the comment field "content".
       const payload: Record<string, unknown> = { rating };
-      if (comment.trim()) payload.comment = comment.trim();
+      if (comment.trim()) payload.content = comment.trim();
       await api.submitReview(token, productId, payload);
       showToast({
         title: 'Review submitted',
