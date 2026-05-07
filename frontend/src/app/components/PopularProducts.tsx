@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, ShoppingCart, TrendingUp, ArrowRight } from 'lucide-react';
+import { Star, ShoppingCart, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router';
 import { CatalogProduct } from '../types/catalog';
 import { useCart } from '../context/CartContext';
@@ -40,9 +40,6 @@ export const PopularProducts: React.FC<PopularProductsProps> = ({ products }) =>
             <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Most loved this week</h2>
           </div>
         </div>
-        <Link to="/" className="hidden sm:inline-flex items-center gap-1.5 text-sm font-semibold text-black hover:gap-2.5 transition-all">
-          View all <ArrowRight size={14} />
-        </Link>
       </div>
 
       <div className="flex gap-5 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-hide lg:grid lg:grid-cols-6 lg:overflow-visible lg:pb-0">

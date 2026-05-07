@@ -11,7 +11,7 @@ import {
 const SORT_OPTIONS = [
   { value: '', label: 'Featured' },
   { value: 'Newest', label: 'Newest arrivals' },
-  { value: 'Rating', label: 'Best reviewed' },
+  { value: 'Rating', label: 'Popularity' },
   { value: 'PriceLow', label: 'Price: Low to High' },
   { value: 'PriceHigh', label: 'Price: High to Low' },
 ];

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, ShoppingCart, ArrowRight } from 'lucide-react';
+import { Sparkles, ShoppingCart } from 'lucide-react';
 import { Link } from 'react-router';
 import { CatalogProduct } from '../types/catalog';
 import { useCart } from '../context/CartContext';
@@ -68,18 +68,6 @@ export const NewArrivals: React.FC<NewArrivalsProps> = ({ products }) => {
             </h2>
           </div>
         </div>
-        <a
-          href="#products"
-          onClick={(e) => {
-            e.preventDefault();
-            document
-              .getElementById('products')
-              ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }}
-          className="hidden sm:inline-flex items-center gap-1.5 text-sm font-semibold text-black hover:gap-2.5 transition-all"
-        >
-          View all <ArrowRight size={14} />
-        </a>
       </div>
 
       <div className="flex gap-5 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-hide lg:grid lg:grid-cols-6 lg:overflow-visible lg:pb-0">

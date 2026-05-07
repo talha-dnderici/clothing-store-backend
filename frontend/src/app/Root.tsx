@@ -52,9 +52,17 @@ export default function Root() {
     });
   }, [location.pathname, navigate]);
 
+  // Reset every catalog filter and ensure we're on the home route. Used by
+  // the AURA logo so a single click always feels like "go to the storefront".
+  const handleHomeClick = useCallback(() => {
+    setSearchQuery('');
+    setActiveCategory('All');
+    if (location.pathname !== '/') navigate('/');
+  }, [location.pathname, navigate]);
+
   return (
     <div className="min-h-screen bg-[#fafafa] text-gray-900 font-sans selection:bg-black selection:text-white flex flex-col">
-      <Navbar onSearch={handleSearch} />
+      <Navbar onSearch={handleSearch} onHomeClick={handleHomeClick} />
       <CategoryMenu
         activeCategory={activeCategory}
         categories={categories}
