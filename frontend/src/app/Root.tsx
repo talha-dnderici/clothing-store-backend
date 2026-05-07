@@ -52,9 +52,14 @@ export default function Root() {
     });
   }, [location.pathname, navigate]);
 
+  const handleLogoClick = useCallback(() => {
+    setSearchQuery('');
+    setActiveCategory('All');
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#fafafa] text-gray-900 font-sans selection:bg-black selection:text-white flex flex-col">
-      <Navbar onSearch={handleSearch} />
+      <Navbar onSearch={handleSearch} onLogoClick={handleLogoClick} />
       <CategoryMenu
         activeCategory={activeCategory}
         categories={categories}
