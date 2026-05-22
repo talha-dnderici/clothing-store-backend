@@ -19,6 +19,18 @@ export class OrderItem {
 
   @Prop({ default: 0, min: 0, max: 100 })
   discountRate!: number;
+
+  @Prop({ default: 0, min: 0 })
+  effectiveUnitPrice!: number;
+
+  @Prop({ default: 0, min: 0 })
+  unitCost!: number;
+
+  @Prop({ default: 0, min: 0 })
+  lineTotal!: number;
+
+  @Prop({ default: 0, min: 0 })
+  lineCost!: number;
 }
 
 export const OrderItemSchema = SchemaFactory.createForClass(OrderItem);
@@ -55,3 +67,6 @@ export class Order {
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);
+
+OrderSchema.index({ createdAt: -1 });
+OrderSchema.index({ customerId: 1, createdAt: -1 });

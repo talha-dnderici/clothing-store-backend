@@ -47,6 +47,14 @@ export class Invoice {
 
   @Prop({ type: Date, default: null })
   emailedAt!: Date | null;
+
+  createdAt!: Date;
+
+  updatedAt!: Date;
 }
 
 export const InvoiceSchema = SchemaFactory.createForClass(Invoice);
+
+InvoiceSchema.index({ createdAt: -1 });
+InvoiceSchema.index({ orderId: 1 }, { unique: true });
+InvoiceSchema.index({ customerId: 1, createdAt: -1 });

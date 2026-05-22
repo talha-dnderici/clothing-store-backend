@@ -23,6 +23,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ClientProxy } from '@nestjs/microservices';
 import {
   IsBoolean,
+  IsEmail,
   IsIn,
   IsInt,
   IsNumber,
@@ -65,13 +66,49 @@ class MockPaymentRequestDto {
   @IsNumber()
   @Min(0)
   amount?: number;
-
+ 
   @IsOptional()
   @IsString()
   orderId?: string;
 }
 
+class InvoiceQueryRequestDto {
+  @IsOptional()
+  @IsString()
+  startDate?: string;
 
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
+  @IsOptional()
+  @IsString()
+  customerEmail?: string;
+}
+
+class RevenueQueryRequestDto {
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @IsOptional()
+  @IsIn(['day', 'week', 'month'])
+  groupBy?: 'day' | 'week' | 'month';
+}
+
+class EmailInvoiceRequestDto {
+  @IsOptional()
+  @IsEmail()
+  recipientEmail?: string;
+}
 
 class UpdateOrderStatusRequestDto {
   @IsIn(['processing', 'in-transit', 'delivered'])
@@ -970,6 +1007,39 @@ export class AppController {
     return this.sendMessage(this.cardClient, 'card.findAllOrders', {});
   }
 
+  @Get('manager/invoices')
+  async findManagerInvoices(
+    @Headers('authorization') authorization: string | undefined,
+    @Query() query: InvoiceQueryRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireSalesManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.findInvoices', query);
+  }
+
+  @Get('manager/revenue')
+  async getManagerRevenueReport(
+    @Headers('authorization') authorization: string | undefined,
+    @Query() query: RevenueQueryRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireSalesManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.getRevenueReport', query);
+  }
+
+  @Get('manager/profit-loss')
+  async getManagerProfitLossReport(
+    @Headers('authorization') authorization: string | undefined,
+    @Query() query: RevenueQueryRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireSalesManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.getProfitLossReport', query);
+  }
+
   @Patch('manager/orders/:id/status')
   async updateManagerOrderStatus(
     @Headers('authorization') authorization: string | undefined,
@@ -982,6 +1052,41 @@ export class AppController {
     return this.sendMessage(this.cardClient, 'card.updateOrderStatus', {
       orderId: id,
       status: dto.status,
+    });
+  }
+
+  @Get('manager/invoices/:orderId/pdf')
+  async findManagerInvoicePdf(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('orderId') orderId: string,
+    @Res() res: any,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireSalesManager(authUser);
+
+    const pdf = await this.sendMessage<{
+      fileName: string;
+      contentType: string;
+      base64: string;
+    }>(this.cardClient, 'card.findOrderInvoicePdf', orderId);
+
+    res.setHeader('Content-Type', pdf.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${pdf.fileName}"`);
+    return res.send(Buffer.from(pdf.base64, 'base64'));
+  }
+
+  @Post('manager/invoices/:orderId/email')
+  async emailManagerInvoice(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('orderId') orderId: string,
+    @Body() dto: EmailInvoiceRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireSalesManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.emailOrderInvoice', {
+      orderId,
+      recipientEmail: dto.recipientEmail,
     });
   }
 
@@ -1053,6 +1158,7 @@ export class AppController {
   async emailOrderInvoice(
     @Headers('authorization') authorization: string | undefined,
     @Param('id') id: string,
+    @Body() dto: EmailInvoiceRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
     const order = await this.sendMessage<{ customerId: string }>(
@@ -1068,7 +1174,10 @@ export class AppController {
       'You cannot email this invoice',
     );
 
-    return this.sendMessage(this.cardClient, 'card.emailOrderInvoice', id);
+    return this.sendMessage(this.cardClient, 'card.emailOrderInvoice', {
+      orderId: id,
+      recipientEmail: dto.recipientEmail,
+    });
   }
 
   @Get('orders/:id')

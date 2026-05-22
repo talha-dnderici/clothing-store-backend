@@ -23,6 +23,9 @@ export class Product {
   @Prop({ required: true, min: 0 })
   price!: number;
 
+  @Prop({ default: 0, min: 0 })
+  costPrice!: number;
+
   @Prop({ required: true, min: 0 })
   stock!: number;
 

@@ -23,7 +23,9 @@ import { Order, OrderDocument } from '@app/common/database/schemas/order.schema'
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCardDto } from './dto/create-card.dto';
+import { InvoiceQueryDto } from './dto/invoice-query.dto';
 import { RemoveCartItemDto } from './dto/remove-cart-item.dto';
+import { RevenueQueryDto } from './dto/revenue-query.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
 import { UpdateDeliveryStatusDto } from './dto/update-delivery-status.dto';
@@ -40,6 +42,11 @@ type MockPaymentApproval = {
   amount: number;
   approvedAt: Date;
   orderId?: string | null;
+};
+
+type EmailInvoicePayload = {
+  orderId: string;
+  recipientEmail?: string;
 };
 
 @Injectable()
@@ -641,11 +648,29 @@ export class CardService {
     return ['1', 'true', 'yes', 'on'].includes((value ?? '').toLowerCase());
   }
 
-  private getInvoiceRecipient(customerEmail: string) {
+  private isValidEmail(value: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  }
+
+  private normalizeEmail(value: string, fieldName: string) {
+    const email = value.trim().toLowerCase();
+
+    if (!email || !this.isValidEmail(email)) {
+      throw new BadRequestException(`${fieldName} must be a valid email address`);
+    }
+
+    return email;
+  }
+
+  private getInvoiceRecipient(customerEmail: string, requestedEmail?: string) {
+    if (requestedEmail?.trim()) {
+      return this.normalizeEmail(requestedEmail, 'recipientEmail');
+    }
+
     return (
       process.env.MAIL_OVERRIDE_TO?.trim() ||
       process.env.MAIL_TO?.trim() ||
-      customerEmail
+      this.normalizeEmail(customerEmail, 'customerEmail')
     );
   }
 
@@ -828,6 +853,7 @@ export class CardService {
     invoice: InvoiceDocument,
     order: OrderDocument,
     force = false,
+    requestedRecipientEmail?: string,
   ) {
     if (process.env.SMTP_DISABLED === 'true') {
       invoice.emailStatus = 'skipped';
@@ -876,7 +902,7 @@ export class CardService {
     }
 
     try {
-      const to = this.getInvoiceRecipient(order.customerEmail);
+      const to = this.getInvoiceRecipient(order.customerEmail, requestedRecipientEmail);
       invoice.recipientEmail = to;
       await this.sendSmtpMail(
         to,
@@ -1392,18 +1418,26 @@ export class CardService {
           throw new NotFoundException(`Product not found: ${item.productId}`);
         }
 
+        const discountRate = product.discountActive ? (product.discountRate ?? 0) : 0;
+        const effectiveUnitPrice =
+          Math.round(product.price * (1 - discountRate / 100) * 100) / 100;
+        const unitCost = product.costPrice ?? 0;
+
         return {
           productId: item.productId,
           productName: product.name,
           quantity: item.quantity,
           unitPrice: product.price,
-          discountRate: product.discountActive ? (product.discountRate ?? 0) : 0,
+          discountRate,
+          effectiveUnitPrice,
+          unitCost,
+          lineTotal: Math.round(effectiveUnitPrice * item.quantity * 100) / 100,
+          lineCost: Math.round(unitCost * item.quantity * 100) / 100,
         };
       });
 
       const totalPrice = orderItems.reduce((sum, item) => {
-        const discountMultiplier = 1 - item.discountRate / 100;
-        return sum + item.unitPrice * item.quantity * discountMultiplier;
+        return sum + item.effectiveUnitPrice * item.quantity;
       }, 0);
 
       createdOrder = await this.orderModel.create({
@@ -1426,10 +1460,7 @@ export class CardService {
           quantity: item.quantity,
           totalPrice:
             Math.round(
-              item.unitPrice *
-                item.quantity *
-                (1 - item.discountRate / 100) *
-                100,
+              item.effectiveUnitPrice * item.quantity * 100,
             ) / 100,
           deliveryAddress,
           status: 'processing',
@@ -1506,6 +1537,214 @@ export class CardService {
       return orders.map((order) => this.sanitizeOrder(order));
     } catch (error) {
       this.handleServiceError(error, 'Orders could not be listed');
+    }
+  }
+
+  private buildDateRangeFilter(query: InvoiceQueryDto | RevenueQueryDto) {
+    const createdAt: Record<string, Date> = {};
+
+    if (query.startDate) {
+      const start = new Date(query.startDate);
+
+      if (Number.isNaN(start.getTime())) {
+        throw new BadRequestException('startDate must be a valid date');
+      }
+
+      createdAt.$gte = start;
+    }
+
+    if (query.endDate) {
+      const end = new Date(query.endDate);
+
+      if (Number.isNaN(end.getTime())) {
+        throw new BadRequestException('endDate must be a valid date');
+      }
+
+      if (/^\d{4}-\d{2}-\d{2}$/.test(query.endDate)) {
+        end.setUTCHours(23, 59, 59, 999);
+      }
+
+      createdAt.$lte = end;
+    }
+
+    if (createdAt.$gte && createdAt.$lte && createdAt.$gte > createdAt.$lte) {
+      throw new BadRequestException('startDate must be before endDate');
+    }
+
+    return Object.keys(createdAt).length ? { createdAt } : {};
+  }
+
+  private getOrderCreatedAt(order: OrderDocument) {
+    return (order as unknown as { createdAt?: Date }).createdAt ?? new Date();
+  }
+
+  private getInvoiceCreatedAt(invoice: InvoiceDocument) {
+    return (invoice as unknown as { createdAt?: Date }).createdAt ?? new Date();
+  }
+
+  private getBucketKey(date: Date, groupBy: 'day' | 'week' | 'month') {
+    const value = new Date(date);
+
+    if (groupBy === 'month') {
+      return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}`;
+    }
+
+    if (groupBy === 'week') {
+      const weekStart = new Date(Date.UTC(
+        value.getUTCFullYear(),
+        value.getUTCMonth(),
+        value.getUTCDate(),
+      ));
+      const day = weekStart.getUTCDay() || 7;
+      weekStart.setUTCDate(weekStart.getUTCDate() - day + 1);
+      return weekStart.toISOString().slice(0, 10);
+    }
+
+    return value.toISOString().slice(0, 10);
+  }
+
+  private getOrderRevenue(order: OrderDocument) {
+    return Math.round(
+      order.items.reduce((sum, item) => {
+        const effectiveUnitPrice =
+          item.effectiveUnitPrice ??
+          Math.round(item.unitPrice * (1 - item.discountRate / 100) * 100) / 100;
+        const lineTotal = item.lineTotal ?? effectiveUnitPrice * item.quantity;
+        return sum + lineTotal;
+      }, 0) * 100,
+    ) / 100;
+  }
+
+  private getOrderCost(order: OrderDocument) {
+    return Math.round(
+      order.items.reduce((sum, item) => {
+        const lineCost = item.lineCost ?? (item.unitCost ?? 0) * item.quantity;
+        return sum + lineCost;
+      }, 0) * 100,
+    ) / 100;
+  }
+
+  async findInvoices(query: InvoiceQueryDto = {}) {
+    try {
+      const filter: Record<string, unknown> = {
+        ...this.buildDateRangeFilter(query),
+      };
+
+      if (query.customerId?.trim()) {
+        filter.customerId = query.customerId.trim();
+      }
+
+      if (query.customerEmail?.trim()) {
+        filter.customerEmail = query.customerEmail.trim().toLowerCase();
+      }
+
+      const invoices = await this.invoiceModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return invoices.map((invoice) => this.sanitizeInvoice(invoice));
+    } catch (error) {
+      this.handleServiceError(error, 'Invoices could not be listed');
+    }
+  }
+
+  async getRevenueReport(query: RevenueQueryDto = {}) {
+    try {
+      const invoices = await this.invoiceModel
+        .find(this.buildDateRangeFilter(query))
+        .sort({ createdAt: 1 })
+        .exec();
+      const groupBy = query.groupBy ?? 'day';
+      const buckets = new Map<string, { date: string; revenue: number; invoiceCount: number }>();
+
+      for (const invoice of invoices) {
+        const key = this.getBucketKey(this.getInvoiceCreatedAt(invoice), groupBy);
+        const bucket = buckets.get(key) ?? { date: key, revenue: 0, invoiceCount: 0 };
+        bucket.revenue += invoice.totalAmount;
+        bucket.invoiceCount += 1;
+        buckets.set(key, bucket);
+      }
+
+      const chart = [...buckets.values()].map((bucket) => ({
+        ...bucket,
+        revenue: Math.round(bucket.revenue * 100) / 100,
+      }));
+      const totalRevenue =
+        Math.round(chart.reduce((sum, bucket) => sum + bucket.revenue, 0) * 100) /
+        100;
+
+      return {
+        startDate: query.startDate ?? null,
+        endDate: query.endDate ?? null,
+        groupBy,
+        invoiceCount: invoices.length,
+        totalRevenue,
+        chart,
+      };
+    } catch (error) {
+      this.handleServiceError(error, 'Revenue report could not be calculated');
+    }
+  }
+
+  async getProfitLossReport(query: RevenueQueryDto = {}) {
+    try {
+      const orders = await this.orderModel
+        .find({
+          ...this.buildDateRangeFilter(query),
+          paymentConfirmed: true,
+          status: { $nin: ['cancelled', 'refunded'] },
+        })
+        .sort({ createdAt: 1 })
+        .exec();
+      const groupBy = query.groupBy ?? 'day';
+      const buckets = new Map<
+        string,
+        { date: string; revenue: number; cost: number; profit: number; orderCount: number }
+      >();
+
+      let totalRevenue = 0;
+      let totalCost = 0;
+
+      for (const order of orders) {
+        const revenue = this.getOrderRevenue(order);
+        const cost = this.getOrderCost(order);
+        const key = this.getBucketKey(this.getOrderCreatedAt(order), groupBy);
+        const bucket =
+          buckets.get(key) ?? { date: key, revenue: 0, cost: 0, profit: 0, orderCount: 0 };
+
+        bucket.revenue += revenue;
+        bucket.cost += cost;
+        bucket.profit += revenue - cost;
+        bucket.orderCount += 1;
+        buckets.set(key, bucket);
+        totalRevenue += revenue;
+        totalCost += cost;
+      }
+
+      const chart = [...buckets.values()].map((bucket) => ({
+        ...bucket,
+        revenue: Math.round(bucket.revenue * 100) / 100,
+        cost: Math.round(bucket.cost * 100) / 100,
+        profit: Math.round(bucket.profit * 100) / 100,
+      }));
+      totalRevenue = Math.round(totalRevenue * 100) / 100;
+      totalCost = Math.round(totalCost * 100) / 100;
+      const profit = Math.round((totalRevenue - totalCost) * 100) / 100;
+
+      return {
+        startDate: query.startDate ?? null,
+        endDate: query.endDate ?? null,
+        groupBy,
+        orderCount: orders.length,
+        totalRevenue,
+        totalCost,
+        profit,
+        loss: profit < 0 ? Math.abs(profit) : 0,
+        chart,
+      };
+    } catch (error) {
+      this.handleServiceError(error, 'Profit/loss report could not be calculated');
     }
   }
 
@@ -1624,8 +1863,11 @@ export class CardService {
     }
   }
 
-  async emailOrderInvoice(orderId: string) {
+  async emailOrderInvoice(payload: string | EmailInvoicePayload) {
     try {
+      const orderId = typeof payload === 'string' ? payload : payload.orderId;
+      const requestedRecipientEmail =
+        typeof payload === 'string' ? undefined : payload.recipientEmail;
       const order = await this.orderModel.findById(orderId).exec();
 
       if (!order) {
@@ -1636,7 +1878,10 @@ export class CardService {
         (await this.invoiceModel.findOne({ orderId }).exec()) ??
         (await this.createInvoiceForOrder(order, false));
 
-      const recipientEmail = this.getInvoiceRecipient(order.customerEmail);
+      const recipientEmail = this.getInvoiceRecipient(
+        order.customerEmail,
+        requestedRecipientEmail,
+      );
 
       if (!invoice.pdfBase64 || invoice.recipientEmail !== recipientEmail) {
         invoice.pdfBase64 = (
@@ -1648,7 +1893,12 @@ export class CardService {
         invoice.recipientEmail = recipientEmail;
       }
 
-      const emailedInvoice = await this.sendInvoiceEmail(invoice, order, false);
+      const emailedInvoice = await this.sendInvoiceEmail(
+        invoice,
+        order,
+        true,
+        requestedRecipientEmail,
+      );
 
       if (emailedInvoice.emailStatus !== 'sent') {
         throw new InternalServerErrorException(

@@ -74,6 +74,7 @@ export class MainService {
       ...object,
       discountRate: object.discountRate ?? 0,
       discountActive: Boolean(object.discountActive),
+      costPrice: object.costPrice ?? 0,
       effectivePrice,
     };
   }
@@ -917,11 +918,12 @@ export class MainService {
     try {
       if (
         payload.price === undefined &&
+        payload.costPrice === undefined &&
         payload.discountRate === undefined &&
         payload.discountActive === undefined
       ) {
         throw new BadRequestException(
-          'price, discountRate or discountActive is required',
+          'price, costPrice, discountRate or discountActive is required',
         );
       }
 
