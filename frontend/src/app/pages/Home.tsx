@@ -80,6 +80,64 @@ function applyClientFilters(
   });
 }
 
+const PRODUCT_CACHE_PREFIX = 'aura:catalog:';
+
+function buildProductCacheKey(
+  searchQuery: string,
+  activeCategory: string,
+  sortBy: string,
+  filtersActive: boolean,
+) {
+  return `${PRODUCT_CACHE_PREFIX}${JSON.stringify({
+    searchQuery,
+    activeCategory,
+    sortBy,
+    mode: filtersActive ? 'filtered' : 'default',
+  })}`;
+}
+
+function readCachedProducts(cacheKey: string) {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const cached = window.sessionStorage.getItem(cacheKey);
+
+    if (!cached) {
+      return null;
+    }
+
+    const parsed = JSON.parse(cached) as {
+      items?: CatalogProduct[];
+      total?: number;
+    };
+    return Array.isArray(parsed?.items)
+      ? {
+          items: parsed.items,
+          total: typeof parsed.total === 'number' ? parsed.total : parsed.items.length,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedProducts(
+  cacheKey: string,
+  payload: { items: CatalogProduct[]; total: number },
+) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+  } catch {
+    // Ignore cache write failures and keep the network response as source of truth.
+  }
+}
+
 export default function Home() {
   const { searchQuery, activeCategory, categories, clearFilters } = useOutletContext<{
     searchQuery: string;
@@ -123,8 +181,7 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
-    setErrorMessage('');
+    const canUseCache = page === 1;
 
     const params: Record<string, string> = {};
     if (searchQuery) params.q = searchQuery;
@@ -137,22 +194,49 @@ export default function Home() {
     // filtering operates over the full catalog rather than a paginated slice.
     params.limit = String(filtersActive ? ALL_PRODUCTS_LIMIT : PRODUCTS_PER_PAGE);
 
+    const cacheKey = buildProductCacheKey(
+      searchQuery,
+      activeCategory,
+      sortBy,
+      filtersActive,
+    );
+    const cachedProducts = canUseCache ? readCachedProducts(cacheKey) : null;
+
+    if (cachedProducts) {
+      setProducts(cachedProducts.items);
+      setTotalProducts(cachedProducts.total);
+    }
+
+    setIsLoading(!cachedProducts);
+    setErrorMessage('');
+
     api.getProducts(params)
-      .then(res => {
+      .then((res) => {
         if (!cancelled) {
           const payload = res.data as ProductsResponse;
           const mappedProducts = mapProducts(payload.items ?? []);
-          setTotalProducts(payload.total ?? mappedProducts.length);
-          setProducts(currentProducts =>
-            page === 1 ? mappedProducts : [...currentProducts, ...mappedProducts]
+          const nextTotal = payload.total ?? mappedProducts.length;
+
+          setTotalProducts(nextTotal);
+          setProducts((currentProducts) =>
+            page === 1 ? mappedProducts : [...currentProducts, ...mappedProducts],
           );
+
+          if (page === 1) {
+            writeCachedProducts(cacheKey, {
+              items: mappedProducts,
+              total: nextTotal,
+            });
+          }
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setProducts([]);
-          setTotalProducts(0);
-          setErrorMessage('Products could not be loaded from the database.');
+          if (!cachedProducts) {
+            setProducts([]);
+            setTotalProducts(0);
+            setErrorMessage('Products could not be loaded from the database.');
+          }
         }
       })
       .finally(() => {

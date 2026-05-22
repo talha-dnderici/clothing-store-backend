@@ -17,10 +17,20 @@ import {
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Transform, Type } from 'class-transformer';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { ClientProxy } from '@nestjs/microservices';
-import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import { firstValueFrom } from 'rxjs';
 import { SERVICE_TOKENS } from '@app/common/constants/service-tokens';
 import { LoginDto } from '../../login-service/src/dto/login.dto';
@@ -138,11 +148,36 @@ class UpdateProductPricingRequestDto {
   discountActive?: boolean;
 }
 
+class AddWishlistItemRequestDto {
+  @IsString()
+  productId!: string;
+}
+
+class ListNotificationsRequestDto {
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  unreadOnly?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}
+
 type AuthenticatedUser = {
   sub: string;
   email: string;
   role: 'customer' | 'salesManager' | 'productManager';
 };
+
+type AppRole = AuthenticatedUser['role'];
+
+const MANAGER_ROLES: AppRole[] = ['salesManager', 'productManager'];
+const SALES_MANAGER_ROLES: AppRole[] = ['salesManager'];
+const PRODUCT_MANAGER_ROLES: AppRole[] = ['productManager'];
 
 @Controller()
 export class AppController {
@@ -258,10 +293,57 @@ export class AppController {
     }
   }
 
-  private requireManager(user: AuthenticatedUser) {
-    if (!['salesManager', 'productManager'].includes(user.role)) {
-      throw new ForbiddenException('Manager access is required');
+  private requireAnyRole(
+    user: AuthenticatedUser,
+    roles: AppRole[],
+    message = 'You do not have access to this resource',
+  ) {
+    if (!roles.includes(user.role)) {
+      throw new ForbiddenException(message);
     }
+  }
+
+  private requireCustomer(user: AuthenticatedUser) {
+    this.requireAnyRole(user, ['customer'], 'Customer access is required');
+  }
+
+  private requireManager(user: AuthenticatedUser) {
+    this.requireAnyRole(user, MANAGER_ROLES, 'Manager access is required');
+  }
+
+  private requireSalesManager(user: AuthenticatedUser) {
+    this.requireAnyRole(
+      user,
+      SALES_MANAGER_ROLES,
+      'Sales manager access is required',
+    );
+  }
+
+  private requireProductManager(user: AuthenticatedUser) {
+    this.requireAnyRole(
+      user,
+      PRODUCT_MANAGER_ROLES,
+      'Product manager access is required',
+    );
+  }
+
+  private assertSelf(user: AuthenticatedUser, ownerId: string, message: string) {
+    if (user.sub !== ownerId) {
+      throw new ForbiddenException(message);
+    }
+  }
+
+  private assertSelfOrRoles(
+    user: AuthenticatedUser,
+    ownerId: string,
+    roles: AppRole[],
+    message: string,
+  ) {
+    if (user.sub === ownerId) {
+      return;
+    }
+
+    this.requireAnyRole(user, roles, message);
   }
 
   private async getCustomerDisplayName(user: AuthenticatedUser) {
@@ -293,15 +375,16 @@ export class AppController {
       mailInbox: 'http://localhost:8025',
       testUsers: {
         customer: 'customer@aura.test',
-        manager: 'manager@aura.test',
+        salesManager: 'sales.manager@aura.test',
+        productManager: 'product.manager@aura.test',
         password: 'password123',
       },
       flows: [
         'Submit a rating without approval',
-        'Submit a comment without a rating and approve it as manager',
+        'Submit a comment without a rating and approve it as product manager',
         'Checkout and receive a PDF invoice email in Mailpit',
-        'Update order status as manager',
-        'Update price and discount as manager',
+        'Update order status as product manager',
+        'Update price and discount as sales manager',
       ],
     };
   }
@@ -320,59 +403,131 @@ export class AppController {
 
   @Post('users')
   @HttpCode(HttpStatus.CREATED)
-  createUser(@Body() dto: CreateUserDto) {
+  async createUser(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: CreateUserDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.registerClient, 'register.createUser', dto);
   }
 
   @Get('users')
-  findAllUsers() {
+  async findAllUsers(@Headers('authorization') authorization: string | undefined) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.registerClient, 'register.findAllUsers', {});
   }
 
   @Get('users/:id')
-  findOneUser(@Param('id') id: string) {
+  async findOneUser(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.assertSelfOrRoles(
+      authUser,
+      id,
+      MANAGER_ROLES,
+      'You cannot view this user profile',
+    );
+
     return this.sendMessage(this.registerClient, 'register.findOneUser', id);
   }
 
   @Patch('users/:id')
-  updateUser(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+  async updateUser(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateUserDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.assertSelfOrRoles(
+      authUser,
+      id,
+      MANAGER_ROLES,
+      'You cannot update this user profile',
+    );
+
     return this.sendMessage(this.registerClient, 'register.updateUser', { id, dto });
   }
 
   @Delete('users/:id')
-  deleteUser(@Param('id') id: string) {
+  async deleteUser(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.registerClient, 'register.deleteUser', id);
   }
 
   @Get('sessions')
-  findAllSessions() {
+  async findAllSessions(@Headers('authorization') authorization: string | undefined) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.loginClient, 'login.findAllSessions', {});
   }
 
   @Get('sessions/:id')
-  findOneSession(@Param('id') id: string) {
+  async findOneSession(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.loginClient, 'login.findOneSession', id);
   }
 
   @Patch('sessions/:id')
-  updateSession(@Param('id') id: string, @Body() dto: UpdateSessionDto) {
+  async updateSession(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateSessionDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.loginClient, 'login.updateSession', { id, dto });
   }
 
   @Delete('sessions/:id')
-  deleteSession(@Param('id') id: string) {
+  async deleteSession(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.loginClient, 'login.deleteSession', id);
   }
 
   @Post('products')
   @HttpCode(HttpStatus.CREATED)
-  createProduct(@Body() dto: CreateProductDto) {
+  async createProduct(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: CreateProductDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
     return this.sendMessage(this.mainClient, 'main.createProduct', dto);
   }
 
   @Post('categories')
   @HttpCode(HttpStatus.CREATED)
-  createCategory(@Body() dto: CreateCategoryDto) {
+  async createCategory(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: CreateCategoryDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
     return this.sendMessage(this.mainClient, 'main.createCategory', dto);
   }
 
@@ -399,6 +554,7 @@ export class AppController {
     @Body() dto: SubmitCommentRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
     const customerName = await this.getCustomerDisplayName(authUser);
 
     return this.sendMessage(this.mainClient, 'main.createComment', {
@@ -418,6 +574,7 @@ export class AppController {
     @Body() dto: SubmitRatingRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
     const customerName = await this.getCustomerDisplayName(authUser);
 
     return this.sendMessage(this.mainClient, 'main.createRating', {
@@ -464,8 +621,83 @@ export class AppController {
   }
 
   @Patch('products/:id')
-  updateProduct(@Param('id') id: string, @Body() dto: UpdateProductDto) {
+  async updateProduct(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
     return this.sendMessage(this.mainClient, 'main.updateProduct', { id, dto });
+  }
+
+  @Get('wishlist')
+  async findWishlist(@Headers('authorization') authorization: string | undefined) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.findWishlist', {
+      customerId: authUser.sub,
+    });
+  }
+
+  @Post('wishlist/items')
+  @HttpCode(HttpStatus.OK)
+  async addWishlistItem(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: AddWishlistItemRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.addWishlistItem', {
+      customerId: authUser.sub,
+      productId: dto.productId,
+    });
+  }
+
+  @Delete('wishlist/items/:productId')
+  async removeWishlistItem(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('productId') productId: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.removeWishlistItem', {
+      customerId: authUser.sub,
+      productId,
+    });
+  }
+
+  @Get('notifications')
+  async findNotifications(
+    @Headers('authorization') authorization: string | undefined,
+    @Query() query: ListNotificationsRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.findNotifications', {
+      customerId: authUser.sub,
+      unreadOnly: query.unreadOnly,
+      limit: query.limit,
+    });
+  }
+
+  @Patch('notifications/:id/read')
+  async markNotificationRead(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.markNotificationRead', {
+      customerId: authUser.sub,
+      notificationId: id,
+    });
   }
 
   @Get('manager/comments')
@@ -474,7 +706,7 @@ export class AppController {
     @Query('status') status?: string,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireManager(authUser);
+    this.requireProductManager(authUser);
 
     return this.sendMessage(this.mainClient, 'main.findCommentsForManager', {
       status,
@@ -488,7 +720,7 @@ export class AppController {
     @Body() dto: ReviewCommentRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireManager(authUser);
+    this.requireProductManager(authUser);
 
     return this.sendMessage(this.mainClient, 'main.reviewComment', {
       id,
@@ -507,7 +739,7 @@ export class AppController {
     @Body() dto: UpdateProductPricingRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireManager(authUser);
+    this.requireSalesManager(authUser);
 
     return this.sendMessage(this.mainClient, 'main.updateProductPricing', {
       id,
@@ -545,49 +777,109 @@ export class AppController {
   }
 
   @Patch('categories/:id')
-  updateCategory(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
+  async updateCategory(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateCategoryDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
     return this.sendMessage(this.mainClient, 'main.updateCategory', { id, dto });
   }
 
   @Delete('products/:id')
-  deleteProduct(@Param('id') id: string) {
+  async deleteProduct(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
     return this.sendMessage(this.mainClient, 'main.deleteProduct', id);
   }
 
   @Delete('categories/:id')
-  deleteCategory(@Param('id') id: string) {
+  async deleteCategory(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireProductManager(authUser);
+
     return this.sendMessage(this.mainClient, 'main.deleteCategory', id);
   }
 
   @Post('cards')
   @HttpCode(HttpStatus.CREATED)
-  createCard(@Body() dto: CreateCardDto) {
+  async createCard(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: CreateCardDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.cardClient, 'card.createCard', dto);
   }
 
   @Get('cart/:userId')
-  getActiveCart(@Param() params: CartUserDto) {
+  async getActiveCart(
+    @Headers('authorization') authorization: string | undefined,
+    @Param() params: CartUserDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+    this.assertSelf(authUser, params.userId, 'You can only view your own cart');
+
     return this.sendMessage(this.cardClient, 'card.getActiveCart', params);
   }
 
   @Post('cart/items')
   @HttpCode(HttpStatus.OK)
-  addItemToCart(@Body() dto: AddCartItemDto) {
+  async addItemToCart(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: AddCartItemDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+    this.assertSelf(authUser, dto.userId, 'You can only update your own cart');
+
     return this.sendMessage(this.cardClient, 'card.addItemToCart', dto);
   }
 
   @Patch('cart/items')
-  updateCartItem(@Body() dto: UpdateCartItemDto) {
+  async updateCartItem(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: UpdateCartItemDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+    this.assertSelf(authUser, dto.userId, 'You can only update your own cart');
+
     return this.sendMessage(this.cardClient, 'card.updateCartItem', dto);
   }
 
   @Delete('cart/items')
-  removeCartItem(@Body() dto: RemoveCartItemDto) {
+  async removeCartItem(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: RemoveCartItemDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+    this.assertSelf(authUser, dto.userId, 'You can only update your own cart');
+
     return this.sendMessage(this.cardClient, 'card.removeCartItem', dto);
   }
 
   @Delete('cart/:userId')
-  clearCart(@Param() params: CartUserDto) {
+  async clearCart(
+    @Headers('authorization') authorization: string | undefined,
+    @Param() params: CartUserDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+    this.assertSelf(authUser, params.userId, 'You can only clear your own cart');
+
     return this.sendMessage(this.cardClient, 'card.clearCart', params);
   }
 
@@ -613,6 +905,7 @@ export class AppController {
     @Body() dto: CheckoutRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
     const user = await this.sendMessage<{
       id: string;
       email: string;
@@ -641,14 +934,27 @@ export class AppController {
       paymentId,
     });
   }
-
-
+  @Post('payments/mock')
+  @HttpCode(HttpStatus.OK)
+  async mockPayment(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: MockPaymentRequestDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+    return this.sendMessage(this.cardClient, 'card.mockPayment', {
+      userId: authUser.sub,
+      amount: dto.amount,
+      orderId: dto.orderId,
+    });
+  }
 
   @Get('orders')
   async findMyOrders(
     @Headers('authorization') authorization: string | undefined,
   ) {
     const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
     return this.sendMessage(this.cardClient, 'card.findOrdersForUser', {
       userId: authUser.sub,
     });
@@ -671,7 +977,7 @@ export class AppController {
     @Body() dto: UpdateOrderStatusRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireManager(authUser);
+    this.requireProductManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.updateOrderStatus', {
       orderId: id,
@@ -684,6 +990,7 @@ export class AppController {
     @Headers('authorization') authorization: string | undefined,
   ) {
     const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
     return this.sendMessage(this.cardClient, 'card.findOrderDeliveryStatusForUser', {
       userId: authUser.sub,
     });
@@ -701,12 +1008,12 @@ export class AppController {
       id,
     );
 
-    if (
-      order.customerId !== authUser.sub &&
-      !['salesManager', 'productManager'].includes(authUser.role)
-    ) {
-      throw new ForbiddenException('You cannot view this invoice');
-    }
+    this.assertSelfOrRoles(
+      authUser,
+      order.customerId,
+      SALES_MANAGER_ROLES,
+      'You cannot view this invoice',
+    );
 
     return this.sendMessage(this.cardClient, 'card.findOrderInvoice', id);
   }
@@ -724,12 +1031,12 @@ export class AppController {
       id,
     );
 
-    if (
-      order.customerId !== authUser.sub &&
-      !['salesManager', 'productManager'].includes(authUser.role)
-    ) {
-      throw new ForbiddenException('You cannot view this invoice PDF');
-    }
+    this.assertSelfOrRoles(
+      authUser,
+      order.customerId,
+      SALES_MANAGER_ROLES,
+      'You cannot view this invoice PDF',
+    );
 
     const pdf = await this.sendMessage<{
       fileName: string;
@@ -754,12 +1061,12 @@ export class AppController {
       id,
     );
 
-    if (
-      order.customerId !== authUser.sub &&
-      !['salesManager', 'productManager'].includes(authUser.role)
-    ) {
-      throw new ForbiddenException('You cannot email this invoice');
-    }
+    this.assertSelfOrRoles(
+      authUser,
+      order.customerId,
+      SALES_MANAGER_ROLES,
+      'You cannot email this invoice',
+    );
 
     return this.sendMessage(this.cardClient, 'card.emailOrderInvoice', id);
   }
@@ -776,12 +1083,12 @@ export class AppController {
       id,
     );
 
-    if (
-      order.customerId !== authUser.sub &&
-      !['salesManager', 'productManager'].includes(authUser.role)
-    ) {
-      throw new ForbiddenException('You cannot view this order');
-    }
+    this.assertSelfOrRoles(
+      authUser,
+      order.customerId,
+      MANAGER_ROLES,
+      'You cannot view this order',
+    );
 
     return order;
   }
@@ -793,7 +1100,7 @@ export class AppController {
     @Body() dto: UpdateOrderStatusRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireManager(authUser);
+    this.requireProductManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.updateOrderStatus', {
       orderId: id,
@@ -806,7 +1113,7 @@ export class AppController {
     @Headers('authorization') authorization: string | undefined,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireManager(authUser);
+    this.requireProductManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.findDeliveries', {});
   }
@@ -818,7 +1125,7 @@ export class AppController {
     @Body() dto: UpdateOrderStatusRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireManager(authUser);
+    this.requireProductManager(authUser);
 
     return this.sendMessage(this.cardClient, 'card.updateDeliveryStatus', {
       deliveryId: id,
@@ -831,28 +1138,51 @@ export class AppController {
     @Headers('authorization') authorization: string | undefined,
   ) {
     const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
     return this.sendMessage(this.cardClient, 'card.findDeliveriesForUser', {
       userId: authUser.sub,
     });
   }
 
   @Get('cards')
-  findAllCards() {
+  async findAllCards(@Headers('authorization') authorization: string | undefined) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.cardClient, 'card.findAllCards', {});
   }
 
   @Get('cards/:id')
-  findOneCard(@Param('id') id: string) {
+  async findOneCard(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.cardClient, 'card.findOneCard', id);
   }
 
   @Patch('cards/:id')
-  updateCard(@Param('id') id: string, @Body() dto: UpdateCardDto) {
+  async updateCard(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateCardDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.cardClient, 'card.updateCard', { id, dto });
   }
 
   @Delete('cards/:id')
-  deleteCard(@Param('id') id: string) {
+  async deleteCard(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireManager(authUser);
+
     return this.sendMessage(this.cardClient, 'card.deleteCard', id);
   }
 }

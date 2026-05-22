@@ -53,8 +53,13 @@ const customerCredentials = {
   password: 'password123',
 };
 
-const managerCredentials = {
-  email: 'manager@aura.test',
+const salesManagerCredentials = {
+  email: 'sales.manager@aura.test',
+  password: 'password123',
+};
+
+const productManagerCredentials = {
+  email: 'product.manager@aura.test',
   password: 'password123',
 };
 
@@ -159,10 +164,15 @@ export function EndpointTester() {
     };
   };
 
-  const createUser = async (role: 'customer' | 'productManager', prefix: string) => {
+  const createUser = async (
+    role: 'customer' | 'salesManager' | 'productManager',
+    prefix: string,
+  ) => {
+    const manager = await ensureSeedUser('productManager');
     const stamp = nowStamp();
     const email = `${prefix}.${stamp}@aura.test`;
     const response = await apiRequest<any>('POST', '/users', {
+      token: manager.token,
       body: {
         name: `${prefix} ${stamp}`,
         email,
@@ -184,7 +194,7 @@ export function EndpointTester() {
   };
 
   const ensureSeedUser = async (
-    kind: 'customer' | 'manager',
+    kind: 'customer' | 'salesManager' | 'productManager',
   ): Promise<LoginState> => {
     const memoryKey = `${kind}Login`;
     const existing = memoryRef.current[memoryKey] as LoginState | undefined;
@@ -194,24 +204,28 @@ export function EndpointTester() {
     }
 
     const credentials =
-      kind === 'customer' ? customerCredentials : managerCredentials;
+      kind === 'customer'
+        ? customerCredentials
+        : kind === 'salesManager'
+          ? salesManagerCredentials
+          : productManagerCredentials;
 
     try {
       const loggedIn = await login(credentials);
       saveMemory({ [memoryKey]: loggedIn, [`${kind}Id`]: loggedIn.user.id });
       return loggedIn;
     } catch {
-      await apiRequest('POST', '/users', {
+      if (kind !== 'customer') {
+        throw new Error('Manager seed users are missing. Run the seed script first.');
+      }
+
+      await apiRequest('POST', '/auth/register', {
         body: {
-          name: kind === 'customer' ? 'AURA Customer' : 'AURA Manager',
+          name: 'AURA Customer',
           email: credentials.email,
           password: credentials.password,
-          taxId: kind === 'customer' ? 'TR-CUSTOMER-001' : 'TR-MANAGER-001',
-          address:
-            kind === 'customer'
-              ? 'Istanbul Test Street 42'
-              : 'AURA Operations Office',
-          role: kind === 'customer' ? 'customer' : 'productManager',
+          taxId: 'TR-CUSTOMER-001',
+          address: 'Istanbul Test Street 42',
         },
       }).catch((error) => {
         if (!String(error?.message ?? '').toLowerCase().includes('already')) {
@@ -242,6 +256,7 @@ export function EndpointTester() {
 
     const stamp = nowStamp();
     const response = await apiRequest<any>('POST', '/categories', {
+      token: (await ensureSeedUser('productManager')).token,
       body: {
         name: `Endpoint Category ${stamp}`,
         description: 'Created by the endpoint tester.',
@@ -257,6 +272,7 @@ export function EndpointTester() {
   const createDisposableCategory = async () => {
     const stamp = nowStamp();
     const response = await apiRequest<any>('POST', '/categories', {
+      token: (await ensureSeedUser('productManager')).token,
       body: {
         name: `Delete Category ${stamp}`,
         description: 'Disposable category.',
@@ -275,6 +291,7 @@ export function EndpointTester() {
     const categoryId = await ensureCategory();
     const stamp = nowStamp();
     const response = await apiRequest<any>('POST', '/products', {
+      token: (await ensureSeedUser('productManager')).token,
       body: {
         name: `Endpoint Hoodie ${stamp}`,
         model: `END-HOOD-${stamp}`,
@@ -301,6 +318,7 @@ export function EndpointTester() {
     const categoryId = await ensureCategory();
     const stamp = nowStamp();
     const response = await apiRequest<any>('POST', '/products', {
+      token: (await ensureSeedUser('productManager')).token,
       body: {
         name: `Delete Product ${stamp}`,
         model: `DEL-PROD-${stamp}`,
@@ -327,7 +345,9 @@ export function EndpointTester() {
 
     const customer = await ensureSeedUser('customer');
     const productId = await ensureProduct();
+    const productManager = await ensureSeedUser('productManager');
     const response = await apiRequest<any>('POST', '/cards', {
+      token: productManager.token,
       body: {
         userId: customer.user.id,
         status: 'abandoned',
@@ -349,7 +369,9 @@ export function EndpointTester() {
   const createDisposableCard = async () => {
     const customer = await ensureSeedUser('customer');
     const productId = await ensureProduct();
+    const productManager = await ensureSeedUser('productManager');
     const response = await apiRequest<any>('POST', '/cards', {
+      token: productManager.token,
       body: {
         userId: customer.user.id,
         status: 'abandoned',
@@ -373,6 +395,7 @@ export function EndpointTester() {
     const selectedColor = `Endpoint ${nowStamp()}`;
 
     await apiRequest('POST', '/cart/items', {
+      token: customer.token,
       body: {
         userId: customer.user.id,
         productId,
@@ -400,8 +423,11 @@ export function EndpointTester() {
     const customer = await ensureSeedUser('customer');
     const productId = await ensureProduct();
 
-    await apiRequest('DELETE', `/cart/${customer.user.id}`).catch(() => undefined);
+    await apiRequest('DELETE', `/cart/${customer.user.id}`, {
+      token: customer.token,
+    }).catch(() => undefined);
     await apiRequest('POST', '/cart/items', {
+      token: customer.token,
       body: {
         userId: customer.user.id,
         productId,
@@ -450,8 +476,24 @@ export function EndpointTester() {
     return commentId;
   };
 
+  const ensureWishlistedProduct = async () => {
+    const customer = await ensureSeedUser('customer');
+    const productId = await ensureProduct();
+
+    await apiRequest('POST', '/wishlist/items', {
+      token: customer.token,
+      body: { productId },
+    });
+
+    saveMemory({ wishlistProductId: productId });
+    return {
+      customer,
+      productId,
+    };
+  };
+
   const ensureDelivery = async () => {
-    const manager = await ensureSeedUser('manager');
+    const manager = await ensureSeedUser('productManager');
     const order = await createOrder();
     const orderId = idOf(order.order);
     const response = await apiRequest<any[]>('GET', '/deliveries', {
@@ -529,7 +571,10 @@ export function EndpointTester() {
         method: 'GET',
         path: '/users',
         label: 'List users',
-        run: () => apiRequest('GET', '/users'),
+        run: async () =>
+          apiRequest('GET', '/users', {
+            token: (await ensureSeedUser('productManager')).token,
+          }),
       },
       {
         key: 'GET /users/:id',
@@ -539,7 +584,9 @@ export function EndpointTester() {
         label: 'Get user',
         run: async () => {
           const customer = await ensureSeedUser('customer');
-          return apiRequest('GET', `/users/${customer.user.id}`);
+          return apiRequest('GET', `/users/${customer.user.id}`, {
+            token: customer.token,
+          });
         },
       },
       {
@@ -553,6 +600,7 @@ export function EndpointTester() {
             memoryRef.current.userId || idOf(await createUser('customer', 'patch.user'));
           saveMemory({ userId });
           return apiRequest('PATCH', `/users/${userId}`, {
+            token: (await ensureSeedUser('productManager')).token,
             body: {
               name: `Patched User ${nowStamp()}`,
               address: 'Patched Endpoint Avenue',
@@ -568,7 +616,9 @@ export function EndpointTester() {
         label: 'Delete user',
         run: async () => {
           const user = await createUser('customer', 'delete.user');
-          return apiRequest('DELETE', `/users/${idOf(user)}`);
+          return apiRequest('DELETE', `/users/${idOf(user)}`, {
+            token: (await ensureSeedUser('productManager')).token,
+          });
         },
       },
       {
@@ -577,7 +627,10 @@ export function EndpointTester() {
         method: 'GET',
         path: '/sessions',
         label: 'List sessions',
-        run: () => apiRequest('GET', '/sessions'),
+        run: async () =>
+          apiRequest('GET', '/sessions', {
+            token: (await ensureSeedUser('productManager')).token,
+          }),
       },
       {
         key: 'GET /sessions/:id',
@@ -585,7 +638,10 @@ export function EndpointTester() {
         method: 'GET',
         path: '/sessions/:id',
         label: 'Get session',
-        run: async () => apiRequest('GET', `/sessions/${await createSession()}`),
+        run: async () =>
+          apiRequest('GET', `/sessions/${await createSession()}`, {
+            token: (await ensureSeedUser('productManager')).token,
+          }),
       },
       {
         key: 'PATCH /sessions/:id',
@@ -595,6 +651,7 @@ export function EndpointTester() {
         label: 'Update session',
         run: async () =>
           apiRequest('PATCH', `/sessions/${await createSession()}`, {
+            token: (await ensureSeedUser('productManager')).token,
             body: { isActive: false },
           }),
       },
@@ -604,7 +661,10 @@ export function EndpointTester() {
         method: 'DELETE',
         path: '/sessions/:id',
         label: 'Delete session',
-        run: async () => apiRequest('DELETE', `/sessions/${await createSession()}`),
+        run: async () =>
+          apiRequest('DELETE', `/sessions/${await createSession()}`, {
+            token: (await ensureSeedUser('productManager')).token,
+          }),
       },
       {
         key: 'POST /categories',
@@ -641,6 +701,7 @@ export function EndpointTester() {
         label: 'Update category',
         run: async () =>
           apiRequest('PATCH', `/categories/${await ensureCategory()}`, {
+            token: (await ensureSeedUser('productManager')).token,
             body: {
               description: `Updated by endpoint tester ${nowStamp()}`,
               isActive: true,
@@ -654,7 +715,9 @@ export function EndpointTester() {
         path: '/categories/:id',
         label: 'Delete category',
         run: async () =>
-          apiRequest('DELETE', `/categories/${await createDisposableCategory()}`),
+          apiRequest('DELETE', `/categories/${await createDisposableCategory()}`, {
+            token: (await ensureSeedUser('productManager')).token,
+          }),
       },
       {
         key: 'POST /products',
@@ -691,6 +754,7 @@ export function EndpointTester() {
         label: 'Update product',
         run: async () =>
           apiRequest('PATCH', `/products/${await ensureProduct()}`, {
+            token: (await ensureSeedUser('productManager')).token,
             body: {
               description: `Updated product ${nowStamp()}`,
               stock: 500,
@@ -705,7 +769,7 @@ export function EndpointTester() {
         path: '/manager/products/:id/pricing',
         label: 'Manager pricing',
         run: async () => {
-          const manager = await ensureSeedUser('manager');
+          const manager = await ensureSeedUser('salesManager');
           return apiRequest('PATCH', `/manager/products/${await ensureProduct()}/pricing`, {
             token: manager.token,
             body: {
@@ -723,7 +787,49 @@ export function EndpointTester() {
         path: '/products/:id',
         label: 'Delete product',
         run: async () =>
-          apiRequest('DELETE', `/products/${await createDisposableProduct()}`),
+          apiRequest('DELETE', `/products/${await createDisposableProduct()}`, {
+            token: (await ensureSeedUser('productManager')).token,
+          }),
+      },
+      {
+        key: 'GET /wishlist',
+        group: 'Wishlist',
+        method: 'GET',
+        path: '/wishlist',
+        label: 'View wishlist',
+        run: async () => {
+          const customer = await ensureSeedUser('customer');
+          await ensureWishlistedProduct();
+          return apiRequest('GET', '/wishlist', { token: customer.token });
+        },
+      },
+      {
+        key: 'POST /wishlist/items',
+        group: 'Wishlist',
+        method: 'POST',
+        path: '/wishlist/items',
+        label: 'Add wishlist item',
+        run: async () => {
+          const customer = await ensureSeedUser('customer');
+          const productId = await ensureProduct();
+          return apiRequest('POST', '/wishlist/items', {
+            token: customer.token,
+            body: { productId },
+          });
+        },
+      },
+      {
+        key: 'DELETE /wishlist/items/:productId',
+        group: 'Wishlist',
+        method: 'DELETE',
+        path: '/wishlist/items/:productId',
+        label: 'Remove wishlist item',
+        run: async () => {
+          const { customer, productId } = await ensureWishlistedProduct();
+          return apiRequest('DELETE', `/wishlist/items/${productId}`, {
+            token: customer.token,
+          });
+        },
       },
       {
         key: 'POST /products/:id/comments',
@@ -778,6 +884,55 @@ export function EndpointTester() {
         run: async () => apiRequest('GET', `/products/${await ensureProduct()}/ratings`),
       },
       {
+        key: 'GET /notifications',
+        group: 'Notifications',
+        method: 'GET',
+        path: '/notifications',
+        label: 'List notifications',
+        run: async () => {
+          const { customer, productId } = await ensureWishlistedProduct();
+          const salesManager = await ensureSeedUser('salesManager');
+          await apiRequest('PATCH', `/manager/products/${productId}/pricing`, {
+            token: salesManager.token,
+            body: {
+              discountRate: 17,
+              discountActive: true,
+            },
+          });
+          return apiRequest('GET', '/notifications', { token: customer.token });
+        },
+      },
+      {
+        key: 'PATCH /notifications/:id/read',
+        group: 'Notifications',
+        method: 'PATCH',
+        path: '/notifications/:id/read',
+        label: 'Read notification',
+        run: async () => {
+          const { customer, productId } = await ensureWishlistedProduct();
+          const salesManager = await ensureSeedUser('salesManager');
+          await apiRequest('PATCH', `/manager/products/${productId}/pricing`, {
+            token: salesManager.token,
+            body: {
+              discountRate: 19,
+              discountActive: true,
+            },
+          });
+          const notifications = await apiRequest<any[]>('GET', '/notifications', {
+            token: customer.token,
+          });
+          const notificationId = idOf(notifications.data[0]);
+
+          if (!notificationId) {
+            throw new Error('Notification was not created');
+          }
+
+          return apiRequest('PATCH', `/notifications/${notificationId}/read`, {
+            token: customer.token,
+          });
+        },
+      },
+      {
         key: 'GET /manager/comments',
         group: 'Feedback',
         method: 'GET',
@@ -785,7 +940,7 @@ export function EndpointTester() {
         label: 'Manager queue',
         run: async () => {
           await createPendingComment();
-          const manager = await ensureSeedUser('manager');
+          const manager = await ensureSeedUser('productManager');
           return apiRequest('GET', '/manager/comments?status=pending', {
             token: manager.token,
           });
@@ -798,7 +953,7 @@ export function EndpointTester() {
         path: '/manager/comments/:id',
         label: 'Approve comment',
         run: async () => {
-          const manager = await ensureSeedUser('manager');
+          const manager = await ensureSeedUser('productManager');
           return apiRequest('PATCH', `/manager/comments/${await createPendingComment()}`, {
             token: manager.token,
             body: { approvalStatus: 'approved' },
@@ -822,7 +977,10 @@ export function EndpointTester() {
         method: 'GET',
         path: '/cards',
         label: 'List cards',
-        run: () => apiRequest('GET', '/cards'),
+        run: async () =>
+          apiRequest('GET', '/cards', {
+            token: (await ensureSeedUser('productManager')).token,
+          }),
       },
       {
         key: 'GET /cards/:id',
@@ -830,7 +988,10 @@ export function EndpointTester() {
         method: 'GET',
         path: '/cards/:id',
         label: 'Get card',
-        run: async () => apiRequest('GET', `/cards/${await ensureCard()}`),
+        run: async () =>
+          apiRequest('GET', `/cards/${await ensureCard()}`, {
+            token: (await ensureSeedUser('productManager')).token,
+          }),
       },
       {
         key: 'PATCH /cards/:id',
@@ -840,6 +1001,7 @@ export function EndpointTester() {
         label: 'Update card',
         run: async () =>
           apiRequest('PATCH', `/cards/${await ensureCard()}`, {
+            token: (await ensureSeedUser('productManager')).token,
             body: {
               status: 'abandoned',
               items: [
@@ -859,7 +1021,10 @@ export function EndpointTester() {
         method: 'DELETE',
         path: '/cards/:id',
         label: 'Delete card',
-        run: async () => apiRequest('DELETE', `/cards/${await createDisposableCard()}`),
+        run: async () =>
+          apiRequest('DELETE', `/cards/${await createDisposableCard()}`, {
+            token: (await ensureSeedUser('productManager')).token,
+          }),
       },
       {
         key: 'GET /cart/:userId',
@@ -869,7 +1034,9 @@ export function EndpointTester() {
         label: 'Active cart',
         run: async () => {
           const customer = await ensureSeedUser('customer');
-          return apiRequest('GET', `/cart/${customer.user.id}`);
+          return apiRequest('GET', `/cart/${customer.user.id}`, {
+            token: customer.token,
+          });
         },
       },
       {
@@ -895,6 +1062,7 @@ export function EndpointTester() {
         run: async () => {
           const item = await addUniqueCartItem();
           return apiRequest('PATCH', '/cart/items', {
+            token: item.customer.token,
             body: {
               userId: item.customer.user.id,
               productId: item.productId,
@@ -914,6 +1082,7 @@ export function EndpointTester() {
         run: async () => {
           const item = await addUniqueCartItem();
           return apiRequest('DELETE', '/cart/items', {
+            token: item.customer.token,
             body: {
               userId: item.customer.user.id,
               productId: item.productId,
@@ -932,7 +1101,9 @@ export function EndpointTester() {
         run: async () => {
           const customer = await ensureSeedUser('customer');
           await addUniqueCartItem();
-          return apiRequest('DELETE', `/cart/${customer.user.id}`);
+          return apiRequest('DELETE', `/cart/${customer.user.id}`, {
+            token: customer.token,
+          });
         },
       },
       {
@@ -979,7 +1150,7 @@ export function EndpointTester() {
         path: '/manager/orders',
         label: 'Manager orders',
         run: async () => {
-          const manager = await ensureSeedUser('manager');
+          const manager = await ensureSeedUser('productManager');
           await ensureOrder();
           return apiRequest('GET', '/manager/orders', { token: manager.token });
         },
@@ -991,7 +1162,7 @@ export function EndpointTester() {
         path: '/manager/orders/:id/status',
         label: 'Manager order status',
         run: async () => {
-          const manager = await ensureSeedUser('manager');
+          const manager = await ensureSeedUser('productManager');
           const order = await createOrder();
           return apiRequest('PATCH', `/manager/orders/${idOf(order.order)}/status`, {
             token: manager.token,
@@ -1031,7 +1202,7 @@ export function EndpointTester() {
         path: '/orders/:id/status',
         label: 'Order status',
         run: async () => {
-          const manager = await ensureSeedUser('manager');
+          const manager = await ensureSeedUser('productManager');
           const order = await createOrder();
           return apiRequest('PATCH', `/orders/${idOf(order.order)}/status`, {
             token: manager.token,
@@ -1092,7 +1263,7 @@ export function EndpointTester() {
         path: '/deliveries',
         label: 'List deliveries',
         run: async () => {
-          const manager = await ensureSeedUser('manager');
+          const manager = await ensureSeedUser('productManager');
           await ensureOrder();
           return apiRequest('GET', '/deliveries', { token: manager.token });
         },
@@ -1104,7 +1275,7 @@ export function EndpointTester() {
         path: '/deliveries/:id/status',
         label: 'Delivery status',
         run: async () => {
-          const manager = await ensureSeedUser('manager');
+          const manager = await ensureSeedUser('productManager');
           return apiRequest('PATCH', `/deliveries/${await ensureDelivery()}/status`, {
             token: manager.token,
             body: { status: 'in-transit' },

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  FlaskConical,
   ShoppingCart,
   User,
   LogOut,
@@ -97,17 +96,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
             </div>
 
             <div className="flex items-center gap-4 sm:gap-6">
-              {isAdmin && (
-                <Link
-                  to="/playground"
-                  className="hidden md:flex items-center gap-2 text-sm font-semibold text-emerald-700 hover:text-emerald-900 transition-colors"
-                  data-testid="admin-playground-link"
-                >
-                  <FlaskConical size={18} />
-                  <span>Operations Console</span>
-                </Link>
-              )}
-
               {user ? (
                 <div className="hidden sm:block relative" ref={menuRef}>
                   <button

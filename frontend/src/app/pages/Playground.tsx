@@ -101,8 +101,13 @@ const customerCredentials = {
   password: 'password123',
 };
 
-const managerCredentials = {
-  email: 'manager@aura.test',
+const salesManagerCredentials = {
+  email: 'sales.manager@aura.test',
+  password: 'password123',
+};
+
+const productManagerCredentials = {
+  email: 'product.manager@aura.test',
   password: 'password123',
 };
 
@@ -132,7 +137,8 @@ export default function Playground() {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [selectedProductId, setSelectedProductId] = useState('');
   const [customer, setCustomer] = useState<LoginState | null>(null);
-  const [manager, setManager] = useState<LoginState | null>(null);
+  const [salesManager, setSalesManager] = useState<LoginState | null>(null);
+  const [productManager, setProductManager] = useState<LoginState | null>(null);
   const [rating, setRating] = useState(5);
   const [commentRating, setCommentRating] = useState(0);
   const [commentText, setCommentText] = useState('Great fabric and fast delivery.');
@@ -187,32 +193,25 @@ export default function Playground() {
   };
 
   const ensureAccounts = async () => {
-    const users = [
-      {
+    await api.login(customerCredentials).catch(async () => {
+      await api.register({
         name: 'AURA Customer',
         email: customerCredentials.email,
         password: customerCredentials.password,
         address: 'Istanbul Test Street 42',
         taxId: 'TR-CUSTOMER-001',
-        role: 'customer',
-      },
-      {
-        name: 'AURA Manager',
-        email: managerCredentials.email,
-        password: managerCredentials.password,
-        address: 'AURA Operations Office',
-        taxId: 'TR-MANAGER-001',
-        role: 'productManager',
-      },
-    ];
-
-    for (const user of users) {
-      await api.createUser(user).catch((error) => {
-        if (!String(error?.message ?? '').toLowerCase().includes('already exists')) {
-          throw error;
-        }
       });
-    }
+      await api.login(customerCredentials);
+    });
+
+    await Promise.all([
+      api.login(salesManagerCredentials),
+      api.login(productManagerCredentials),
+    ]).catch(() => {
+      throw new Error('Manager seed users are missing. Run the seed script first.');
+    });
+
+    addLog('Accounts verified.', 'ok');
   };
 
   const loadProducts = async () => {
@@ -239,12 +238,9 @@ export default function Playground() {
     setPublicComments(commentsResponse.data as CommentItem[]);
   };
 
-  // Pending comments are GLOBAL (cross-product), so they need their own
-  // refresher decoupled from `selectedProductId`. Used both by the auto-load
-  // effect on mount and by the Approval section's "Refresh Queue" button.
   const refreshPendingComments = async () => {
-    if (!manager?.token) return;
-    const managerComments = await api.getManagerComments(manager.token, 'pending');
+    if (!productManager?.token) return;
+    const managerComments = await api.getManagerComments(productManager.token, 'pending');
     setPendingComments(managerComments.data as CommentItem[]);
   };
 
@@ -259,9 +255,9 @@ export default function Playground() {
       );
     }
 
-    if (manager?.token) {
+    if (productManager?.token) {
       tasks.push(
-        api.getManagerOrders(manager.token).then((response) => {
+        api.getManagerOrders(productManager.token).then((response) => {
           setManagerOrders(response.data as Order[]);
         }),
       );
@@ -270,8 +266,13 @@ export default function Playground() {
     await Promise.all(tasks);
   };
 
-  const loginAs = async (kind: 'customer' | 'manager') => {
-    const credentials = kind === 'customer' ? customerCredentials : managerCredentials;
+  const loginAs = async (kind: 'customer' | 'salesManager' | 'productManager') => {
+    const credentials =
+      kind === 'customer'
+        ? customerCredentials
+        : kind === 'salesManager'
+          ? salesManagerCredentials
+          : productManagerCredentials;
 
     try {
       const response = await api.login(credentials);
@@ -279,18 +280,20 @@ export default function Playground() {
       const loginState = { token: data.token, user: data.user };
 
       if (kind === 'customer') setCustomer(loginState);
-      else setManager(loginState);
+      else if (kind === 'salesManager') setSalesManager(loginState);
+      else setProductManager(loginState);
 
       addLog(`${data.user.name} logged in.`, 'ok');
     } catch {
+      if (kind !== 'customer') {
+        throw new Error('Manager seed users are missing. Run the seed script first.');
+      }
+
       await ensureAccounts();
-      const response = await api.login(credentials);
+      const response = await api.login(customerCredentials);
       const data = response.data as { token: string; user: LoginUser };
       const loginState = { token: data.token, user: data.user };
-
-      if (kind === 'customer') setCustomer(loginState);
-      else setManager(loginState);
-
+      setCustomer(loginState);
       addLog(`${data.user.name} created and logged in.`, 'ok');
     }
   };
@@ -310,7 +313,7 @@ export default function Playground() {
     if (commentRating > 0) body.rating = commentRating;
 
     await api.submitComment(customer.token, selectedProduct.id, body);
-    addLog('Comment sent to manager approval.', 'ok');
+    addLog('Comment sent to product manager approval.', 'ok');
     setCommentText('');
     await Promise.all([refreshFeedback(selectedProduct.id), loadProducts()]);
   };
@@ -319,9 +322,9 @@ export default function Playground() {
     commentId: string,
     approvalStatus: 'approved' | 'rejected',
   ) => {
-    if (!manager) throw new Error('Manager login is required.');
+    if (!productManager) throw new Error('Product manager login is required.');
 
-    await api.reviewComment(manager.token, commentId, approvalStatus);
+    await api.reviewComment(productManager.token, commentId, approvalStatus);
     addLog(`Comment ${approvalStatus}.`, approvalStatus === 'approved' ? 'ok' : 'info');
     await Promise.all([refreshFeedback(), refreshPendingComments()]);
   };
@@ -366,11 +369,11 @@ export default function Playground() {
   };
 
   const updateOrderStatus = async (order: Order) => {
-    if (!manager) throw new Error('Manager login is required.');
+    if (!productManager) throw new Error('Product manager login is required.');
     const nextStatus = nextOrderStatus(order.status);
     if (!nextStatus) throw new Error('Order is already delivered.');
 
-    await api.updateManagerOrderStatus(manager.token, order.id, nextStatus);
+    await api.updateManagerOrderStatus(productManager.token, order.id, nextStatus);
     addLog(`Order moved to ${nextStatus}.`, 'ok');
     await refreshOrders();
   };
@@ -395,12 +398,12 @@ export default function Playground() {
   };
 
   const confirmBulkApprove = async () => {
-    if (!manager) throw new Error('Manager login is required.');
+    if (!productManager) throw new Error('Product manager login is required.');
     const ids = [...selectedPendingIds];
     if (!ids.length) throw new Error('Select at least one comment.');
 
     for (const id of ids) {
-      await api.reviewComment(manager.token, id, 'approved');
+      await api.reviewComment(productManager.token, id, 'approved');
     }
     addLog(`Approved ${ids.length} comment${ids.length > 1 ? 's' : ''}.`, 'ok');
     exitBulkApprove();
@@ -430,7 +433,7 @@ export default function Playground() {
   };
 
   const confirmBulkAdvance = async () => {
-    if (!manager) throw new Error('Manager login is required.');
+    if (!productManager) throw new Error('Product manager login is required.');
     const targets = managerOrders.filter(
       (order) => selectedOrderIds.has(order.id) && nextOrderStatus(order.status),
     );
@@ -439,7 +442,7 @@ export default function Playground() {
     for (const order of targets) {
       const nextStatus = nextOrderStatus(order.status);
       if (!nextStatus) continue;
-      await api.updateManagerOrderStatus(manager.token, order.id, nextStatus);
+      await api.updateManagerOrderStatus(productManager.token, order.id, nextStatus);
     }
     addLog(`Advanced ${targets.length} order${targets.length > 1 ? 's' : ''}.`, 'ok');
     exitBulkAdvance();
@@ -447,7 +450,9 @@ export default function Playground() {
   };
 
   const updatePricing = async () => {
-    if (!manager || !selectedProduct) throw new Error('Manager login and product are required.');
+    if (!salesManager || !selectedProduct) {
+      throw new Error('Sales manager login and product are required.');
+    }
     const price = Number(priceInput);
     const discountRate = Number(discountInput);
 
@@ -456,7 +461,7 @@ export default function Playground() {
       throw new Error('Discount must be between 0 and 100.');
     }
 
-    await api.updateProductPricing(manager.token, selectedProduct.id, {
+    await api.updateProductPricing(salesManager.token, selectedProduct.id, {
       price,
       discountRate,
       discountActive,
@@ -472,40 +477,13 @@ export default function Playground() {
     });
   }, []);
 
-  // Silently make sure both demo test accounts exist and are signed in. The
-  // Playground actions below all depend on having a customer + manager token
-  // on hand, so we provision them on mount instead of asking the operator to
-  // click "Login Customer" / "Login Manager" every time.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await Promise.all([loginAs('customer'), loginAs('manager')]);
-        if (!cancelled) addLog('Test sessions ready.', 'ok');
-      } catch (error) {
-        if (!cancelled) {
-          addLog(
-            error instanceof Error
-              ? `Auto-login failed: ${error.message}`
-              : 'Auto-login failed.',
-            'error',
-          );
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   useEffect(() => {
     if (selectedProductId) {
       refreshFeedback(selectedProductId).catch((error) => {
         addLog(error instanceof Error ? error.message : 'Feedback refresh failed.', 'error');
       });
     }
-  }, [selectedProductId, manager?.token]);
+  }, [selectedProductId, productManager?.token]);
 
   useEffect(() => {
     if (!selectedProduct) return;
@@ -516,14 +494,14 @@ export default function Playground() {
 
   useEffect(() => {
     refreshOrders().catch(() => undefined);
-  }, [customer?.token, manager?.token]);
+  }, [customer?.token, productManager?.token]);
 
-  // Auto-load the global pending-comments queue as soon as the manager
+  // Auto-load the global pending-comments queue as soon as the product manager
   // session is available. Without this the Approval section stays empty
-  // until the manager picks a product (since `refreshFeedback` was the only
+  // until the product manager picks a product (since `refreshFeedback` was the only
   // path that fetched pending comments before).
   useEffect(() => {
-    if (!manager?.token) return;
+    if (!productManager?.token) return;
     refreshPendingComments().catch((error) => {
       addLog(
         error instanceof Error
@@ -533,7 +511,7 @@ export default function Playground() {
       );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [manager?.token]);
+  }, [productManager?.token]);
 
   return (
     <div className="bg-[#f7f4ef]">
@@ -552,7 +530,19 @@ export default function Playground() {
               moderate comments, walk orders through delivery, and tune
               pricing/discounts without leaving the page.
             </p>
-            <div className="mt-5">
+            <div className="mt-5 grid max-w-3xl grid-cols-1 gap-3 text-sm sm:grid-cols-4">
+              <div className="rounded-lg border border-stone-200 bg-[#fffaf2] p-4">
+                <div className="font-bold text-stone-900">Customer</div>
+                <div className="mt-1 text-stone-600">customer@aura.test</div>
+              </div>
+              <div className="rounded-lg border border-stone-200 bg-[#f2fbf8] p-4">
+                <div className="font-bold text-stone-900">Sales Manager</div>
+                <div className="mt-1 text-stone-600">sales.manager@aura.test</div>
+              </div>
+              <div className="rounded-lg border border-stone-200 bg-[#eef6ff] p-4">
+                <div className="font-bold text-stone-900">Product Manager</div>
+                <div className="mt-1 text-stone-600">product.manager@aura.test</div>
+              </div>
               <a
                 href="http://localhost:8025"
                 target="_blank"
@@ -608,6 +598,77 @@ export default function Playground() {
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+          <section className="rounded-lg border border-stone-200 bg-white p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-extrabold text-stone-950">Access</h2>
+                <p className="text-sm text-stone-500">password123</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => run('ensure-accounts', ensureAccounts)}
+                disabled={Boolean(busyAction)}
+                className="inline-flex items-center gap-2 rounded-md border border-stone-300 px-3 py-2 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+              >
+                <RefreshCw size={16} />
+                Ensure
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => run('login-customer', () => loginAs('customer'))}
+                disabled={Boolean(busyAction)}
+                className="rounded-md bg-stone-950 px-4 py-3 text-sm font-bold text-white hover:bg-stone-800 disabled:opacity-50"
+              >
+                Login Customer
+              </button>
+              <button
+                type="button"
+                onClick={() => run('login-sales-manager', () => loginAs('salesManager'))}
+                disabled={Boolean(busyAction)}
+                className="rounded-md bg-teal-700 px-4 py-3 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-50"
+              >
+                Login Sales
+              </button>
+              <button
+                type="button"
+                onClick={() => run('login-product-manager', () => loginAs('productManager'))}
+                disabled={Boolean(busyAction)}
+                className="rounded-md bg-indigo-700 px-4 py-3 text-sm font-bold text-white hover:bg-indigo-800 disabled:opacity-50"
+              >
+                Login Product
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+              <div className="rounded-lg border border-stone-200 p-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-stone-500">
+                  Customer
+                </div>
+                <div className="mt-1 font-semibold text-stone-900">
+                  {customer?.user.name ?? 'Not logged in'}
+                </div>
+              </div>
+              <div className="rounded-lg border border-stone-200 p-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-stone-500">
+                  Sales Manager
+                </div>
+                <div className="mt-1 font-semibold text-stone-900">
+                  {salesManager?.user.name ?? 'Not logged in'}
+                </div>
+              </div>
+              <div className="rounded-lg border border-stone-200 p-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-stone-500">
+                  Product Manager
+                </div>
+                <div className="mt-1 font-semibold text-stone-900">
+                  {productManager?.user.name ?? 'Not logged in'}
+                </div>
+              </div>
+            </div>
+          </section>
           <section className="rounded-lg border border-stone-200 bg-white p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>

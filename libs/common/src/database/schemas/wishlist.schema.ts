@@ -10,6 +10,9 @@ export class WishlistItem {
 
   @Prop({ default: false })
   discountNotified!: boolean;
+
+  @Prop({ default: '' })
+  lastNotifiedDiscountKey!: string;
 }
 
 export const WishlistItemSchema = SchemaFactory.createForClass(WishlistItem);
@@ -24,3 +27,4 @@ export class Wishlist {
 }
 
 export const WishlistSchema = SchemaFactory.createForClass(Wishlist);
+WishlistSchema.index({ 'items.productId': 1 });

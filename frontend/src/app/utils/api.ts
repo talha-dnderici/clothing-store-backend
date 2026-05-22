@@ -51,8 +51,8 @@ export const api = {
   register(body: Record<string, string>) {
     return request('/auth/register', { method: 'POST', body: JSON.stringify(body) });
   },
-  createUser(body: Record<string, unknown>) {
-    return request('/users', { method: 'POST', body: JSON.stringify(body) });
+  createUser(body: Record<string, unknown>, token?: string) {
+    return request('/users', { method: 'POST', body: JSON.stringify(body) }, token);
   },
 
   // Cards
@@ -150,5 +150,25 @@ export const api = {
       { method: 'PATCH', body: JSON.stringify(body) },
       token,
     );
+  },
+  getWishlist(token: string) {
+    return request('/wishlist', undefined, token);
+  },
+  addWishlistItem(token: string, productId: string) {
+    return request(
+      '/wishlist/items',
+      { method: 'POST', body: JSON.stringify({ productId }) },
+      token,
+    );
+  },
+  removeWishlistItem(token: string, productId: string) {
+    return request(`/wishlist/items/${productId}`, { method: 'DELETE' }, token);
+  },
+  getNotifications(token: string, unreadOnly = false) {
+    const qs = unreadOnly ? '?unreadOnly=true' : '';
+    return request(`/notifications${qs}`, undefined, token);
+  },
+  markNotificationRead(token: string, notificationId: string) {
+    return request(`/notifications/${notificationId}/read`, { method: 'PATCH' }, token);
   },
 };

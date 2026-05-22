@@ -29,9 +29,71 @@ export class LoginService {
     private readonly configService: ConfigService,
   ) {}
 
+  private extractErrorDetails(error: unknown) {
+    const candidate = error as
+      | {
+          message?: string | string[];
+          status?: number | string;
+          statusCode?: number;
+        }
+      | undefined;
+
+    const message = Array.isArray(candidate?.message)
+      ? candidate.message.join(', ')
+      : candidate?.message;
+    const statusCode =
+      candidate?.statusCode ||
+      (typeof candidate?.status === 'number'
+        ? candidate.status
+        : message
+          ? this.mapMessageToStatusCode(message)
+          : undefined);
+
+    return {
+      message,
+      statusCode,
+    };
+  }
+
+  private mapMessageToStatusCode(message: string) {
+    const normalizedMessage = message.toLowerCase();
+
+    if (
+      normalizedMessage.includes('password is incorrect') ||
+      normalizedMessage.includes('invalid email or password') ||
+      normalizedMessage.includes('unauthorized')
+    ) {
+      return 401;
+    }
+
+    if (normalizedMessage.includes('already exists')) {
+      return 409;
+    }
+
+    if (normalizedMessage.includes('not found')) {
+      return 404;
+    }
+
+    if (
+      normalizedMessage.includes('validation') ||
+      normalizedMessage.includes('required') ||
+      normalizedMessage.includes('empty')
+    ) {
+      return 400;
+    }
+
+    return 500;
+  }
+
   private handleServiceError(error: unknown, fallbackMessage: string): never {
     if (error instanceof HttpException) {
       throw error;
+    }
+
+    const details = this.extractErrorDetails(error);
+
+    if (details.message) {
+      throw new HttpException(details.message, details.statusCode ?? 500);
     }
 
     throw new InternalServerErrorException(fallbackMessage);

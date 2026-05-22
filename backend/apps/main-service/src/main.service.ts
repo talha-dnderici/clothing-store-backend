@@ -12,11 +12,23 @@ import {
   Comment,
   CommentDocument,
 } from '@app/common/database/schemas/comment.schema';
+import {
+  Notification,
+  NotificationDocument,
+} from '@app/common/database/schemas/notification.schema';
+import {
+  Wishlist,
+  WishlistDocument,
+} from '@app/common/database/schemas/wishlist.schema';
+import { AddWishlistItemDto } from './dto/add-wishlist-item.dto';
+import { ListNotificationsDto } from './dto/list-notifications.dto';
+import { MarkNotificationReadDto } from './dto/mark-notification-read.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { CreateRatingDto } from './dto/create-rating.dto';
 import { ListProductsDto } from './dto/list-products.dto';
+import { RemoveWishlistItemDto } from './dto/remove-wishlist-item.dto';
 import { ReviewCommentDto } from './dto/review-comment.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -34,6 +46,10 @@ export class MainService {
     private readonly categoryModel: Model<CategoryDocument>,
     @InjectModel(Comment.name)
     private readonly commentModel: Model<CommentDocument>,
+    @InjectModel(Wishlist.name)
+    private readonly wishlistModel: Model<WishlistDocument>,
+    @InjectModel(Notification.name)
+    private readonly notificationModel: Model<NotificationDocument>,
   ) {}
 
   private handleServiceError(error: unknown, fallbackMessage: string): never {
@@ -76,6 +92,174 @@ export class MainService {
       id: object._id.toString(),
       ...object,
     };
+  }
+
+  private sanitizeNotification(notification: NotificationDocument) {
+    const object = notification.toObject();
+    return {
+      id: object._id.toString(),
+      ...object,
+    };
+  }
+
+  private buildDiscountKey(product: Pick<Product, 'discountActive' | 'discountRate' | 'price'>) {
+    if (!product.discountActive || (product.discountRate ?? 0) <= 0) {
+      return '';
+    }
+
+    return `${product.price}:${product.discountRate ?? 0}`;
+  }
+
+  private buildDiscountedPrice(product: Pick<Product, 'price' | 'discountRate'>) {
+    const rate = product.discountRate ?? 0;
+    return Math.round(product.price * (1 - rate / 100) * 100) / 100;
+  }
+
+  private async getOrCreateWishlist(customerId: string) {
+    return this.wishlistModel
+      .findOneAndUpdate(
+        { customerId },
+        {
+          $setOnInsert: {
+            customerId,
+            items: [],
+          },
+        },
+        {
+          new: true,
+          upsert: true,
+          setDefaultsOnInsert: true,
+        },
+      )
+      .exec();
+  }
+
+  private async hydrateWishlist(customerId: string, items: WishlistDocument['items']) {
+    const productIds = [...new Set(items.map((item) => item.productId.trim()).filter(Boolean))];
+    const products = productIds.length
+      ? await this.productModel.find({ _id: { $in: productIds } }).exec()
+      : [];
+    const productMap = new Map(
+      products.map((product) => [
+        product._id.toString(),
+        this.sanitizeProduct(product),
+      ]),
+    );
+
+    return {
+      customerId,
+      itemCount: items.length,
+      items: items.map((item) => {
+        const product = productMap.get(item.productId);
+
+        return {
+          productId: item.productId,
+          discountNotified: item.discountNotified,
+          lastNotifiedDiscountKey: item.lastNotifiedDiscountKey,
+          product: product
+            ? {
+                id: product.id,
+                name: product.name,
+                imageUrl: product.imageUrl,
+                price: product.price,
+                effectivePrice: product.effectivePrice,
+                discountRate: product.discountRate,
+                discountActive: product.discountActive,
+                stock: product.stock,
+              }
+            : null,
+        };
+      }),
+    };
+  }
+
+  private async syncDiscountNotifications(
+    previousProduct:
+      | {
+          name: string;
+          price: number;
+          discountRate: number;
+          discountActive: boolean;
+        }
+      | null,
+    updatedProduct: ProductDocument,
+  ) {
+    const productId = updatedProduct._id.toString();
+    const nextDiscountKey = this.buildDiscountKey(updatedProduct);
+    const previousDiscountKey = previousProduct
+      ? this.buildDiscountKey(previousProduct)
+      : '';
+
+    if (nextDiscountKey === previousDiscountKey) {
+      return;
+    }
+
+    const wishlists = await this.wishlistModel
+      .find({ 'items.productId': productId })
+      .exec();
+
+    if (!wishlists.length) {
+      return;
+    }
+
+    if (!nextDiscountKey) {
+      for (const wishlist of wishlists) {
+        const wishlistItem = wishlist.items.find((item) => item.productId === productId);
+
+        if (!wishlistItem) {
+          continue;
+        }
+
+        wishlistItem.discountNotified = false;
+        wishlistItem.lastNotifiedDiscountKey = '';
+        await wishlist.save();
+      }
+
+      return;
+    }
+
+    const notificationsToCreate: Array<{
+      customerId: string;
+      type: 'discount';
+      productId: string;
+      productName: string;
+      title: string;
+      message: string;
+      metadata: {
+        discountRate: number;
+        originalPrice: number;
+        discountedPrice: number;
+      };
+    }> = [];
+
+    for (const wishlist of wishlists) {
+      const wishlistItem = wishlist.items.find((item) => item.productId === productId);
+
+      if (!wishlistItem || wishlistItem.lastNotifiedDiscountKey === nextDiscountKey) {
+        continue;
+      }
+
+      notificationsToCreate.push({
+        customerId: wishlist.customerId,
+        type: 'discount',
+        productId,
+        productName: updatedProduct.name,
+        title: `${updatedProduct.name} is on sale`,
+        message: `${updatedProduct.name} now has ${updatedProduct.discountRate}% discount.`,
+        metadata: {
+          discountRate: updatedProduct.discountRate ?? 0,
+          originalPrice: updatedProduct.price,
+          discountedPrice: this.buildDiscountedPrice(updatedProduct),
+        },
+      });
+      wishlistItem.discountNotified = true;
+      wishlistItem.lastNotifiedDiscountKey = nextDiscountKey;
+      await wishlist.save();
+    }
+
+    if (notificationsToCreate.length) {
+      await this.notificationModel.insertMany(notificationsToCreate);
+    }
   }
 
   private async attachRatingMetadata<T extends { id?: string; _id?: unknown }>(
@@ -291,6 +475,117 @@ export class MainService {
     }
 
     return categoryIds;
+  }
+
+  async findWishlist(customerId: string) {
+    try {
+      const wishlist = await this.getOrCreateWishlist(customerId.trim());
+      return this.hydrateWishlist(wishlist.customerId, wishlist.items);
+    } catch (error) {
+      this.handleServiceError(error, 'Wishlist could not be listed');
+    }
+  }
+
+  async addWishlistItem(payload: AddWishlistItemDto) {
+    try {
+      const customerId = payload.customerId.trim();
+      const productId = payload.productId.trim();
+
+      if (!productId) {
+        throw new BadRequestException('productId is required');
+      }
+
+      const product = await this.productModel.findById(productId).exec();
+
+      if (!product) {
+        throw new NotFoundException('Product not found');
+      }
+
+      const wishlist = await this.getOrCreateWishlist(customerId);
+      const existingItem = wishlist.items.find((item) => item.productId === productId);
+
+      if (!existingItem) {
+        wishlist.items.push({
+          productId,
+          discountNotified: false,
+          lastNotifiedDiscountKey: '',
+        });
+        await wishlist.save();
+      }
+
+      return this.hydrateWishlist(wishlist.customerId, wishlist.items);
+    } catch (error) {
+      this.handleServiceError(error, 'Wishlist item could not be added');
+    }
+  }
+
+  async removeWishlistItem(payload: RemoveWishlistItemDto) {
+    try {
+      const customerId = payload.customerId.trim();
+      const productId = payload.productId.trim();
+      const wishlist = await this.getOrCreateWishlist(customerId);
+
+      wishlist.items = wishlist.items.filter((item) => item.productId !== productId);
+      await wishlist.save();
+
+      return this.hydrateWishlist(wishlist.customerId, wishlist.items);
+    } catch (error) {
+      this.handleServiceError(error, 'Wishlist item could not be removed');
+    }
+  }
+
+  async findNotifications(payload: ListNotificationsDto) {
+    try {
+      const customerId = payload.customerId.trim();
+      const unreadOnly = Boolean(payload.unreadOnly);
+      const limit = payload.limit ?? 50;
+      const filter: Record<string, unknown> = { customerId };
+
+      if (unreadOnly) {
+        filter.isRead = false;
+      }
+
+      const notifications = await this.notificationModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .exec();
+
+      return notifications.map((notification) => this.sanitizeNotification(notification));
+    } catch (error) {
+      this.handleServiceError(error, 'Notifications could not be listed');
+    }
+  }
+
+  async markNotificationRead(payload: MarkNotificationReadDto) {
+    try {
+      const notification = await this.notificationModel
+        .findOneAndUpdate(
+          {
+            _id: payload.notificationId,
+            customerId: payload.customerId.trim(),
+          },
+          {
+            $set: {
+              isRead: true,
+              readAt: new Date(),
+            },
+          },
+          {
+            new: true,
+            runValidators: true,
+          },
+        )
+        .exec();
+
+      if (!notification) {
+        throw new NotFoundException('Notification not found');
+      }
+
+      return this.sanitizeNotification(notification);
+    } catch (error) {
+      this.handleServiceError(error, 'Notification could not be updated');
+    }
   }
 
   async createCategory(payload: CreateCategoryDto) {
@@ -630,6 +925,12 @@ export class MainService {
         );
       }
 
+      const previousProduct = await this.productModel
+        .findById(id)
+        .select('name price discountRate discountActive')
+        .lean()
+        .exec();
+
       const product = await this.productModel
         .findByIdAndUpdate(id, payload, { new: true, runValidators: true })
         .exec();
@@ -637,6 +938,8 @@ export class MainService {
       if (!product) {
         throw new NotFoundException('Product not found');
       }
+
+      await this.syncDiscountNotifications(previousProduct, product);
 
       const [hydratedProduct] = await this.attachCategoryMetadata([
         this.sanitizeProduct(product),

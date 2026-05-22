@@ -80,7 +80,6 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true },
     taxId: { type: String, default: '' },
     address: { type: String, default: '' },
-    wishlistProductIds: { type: [String], default: [] },
     isActive: { type: Boolean, default: true },
     role: {
       type: String,
@@ -230,11 +229,19 @@ const userSeeds = [
     role: 'customer',
   },
   {
-    name: 'AURA Manager',
-    email: 'manager@aura.test',
+    name: 'AURA Sales Manager',
+    email: 'sales.manager@aura.test',
+    password: 'password123',
+    address: 'AURA Sales Office',
+    taxId: 'TR-SALES-001',
+    role: 'salesManager',
+  },
+  {
+    name: 'AURA Product Manager',
+    email: 'product.manager@aura.test',
     password: 'password123',
     address: 'AURA Operations Office',
-    taxId: 'TR-MANAGER-001',
+    taxId: 'TR-PRODUCT-001',
     role: 'productManager',
   },
 ];

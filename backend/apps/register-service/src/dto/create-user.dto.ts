@@ -1,12 +1,4 @@
-import {
-  IsArray,
-  IsBoolean,
-  IsEmail,
-  IsEnum,
-  IsOptional,
-  IsString,
-  MinLength,
-} from 'class-validator';
+import { IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 
 const allowedUserRoles = ['customer', 'salesManager', 'productManager'] as const;
 
@@ -28,11 +20,6 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   address?: string;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  wishlistProductIds?: string[];
 
   @IsOptional()
   @IsBoolean()

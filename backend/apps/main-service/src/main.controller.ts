@@ -1,10 +1,15 @@
+import { AddWishlistItemDto } from './dto/add-wishlist-item.dto';
+import { CustomerScopeDto } from './dto/customer-scope.dto';
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
+import { ListNotificationsDto } from './dto/list-notifications.dto';
+import { MarkNotificationReadDto } from './dto/mark-notification-read.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { CreateRatingDto } from './dto/create-rating.dto';
 import { ListProductsDto } from './dto/list-products.dto';
+import { RemoveWishlistItemDto } from './dto/remove-wishlist-item.dto';
 import { ReviewCommentDto } from './dto/review-comment.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -18,6 +23,31 @@ export class MainController {
   @MessagePattern('main.createProduct')
   createProduct(@Payload() payload: CreateProductDto) {
     return this.mainService.createProduct(payload);
+  }
+
+  @MessagePattern('main.findWishlist')
+  findWishlist(@Payload() payload: CustomerScopeDto) {
+    return this.mainService.findWishlist(payload.customerId);
+  }
+
+  @MessagePattern('main.addWishlistItem')
+  addWishlistItem(@Payload() payload: AddWishlistItemDto) {
+    return this.mainService.addWishlistItem(payload);
+  }
+
+  @MessagePattern('main.removeWishlistItem')
+  removeWishlistItem(@Payload() payload: RemoveWishlistItemDto) {
+    return this.mainService.removeWishlistItem(payload);
+  }
+
+  @MessagePattern('main.findNotifications')
+  findNotifications(@Payload() payload: ListNotificationsDto) {
+    return this.mainService.findNotifications(payload);
+  }
+
+  @MessagePattern('main.markNotificationRead')
+  markNotificationRead(@Payload() payload: MarkNotificationReadDto) {
+    return this.mainService.markNotificationRead(payload);
   }
 
   @MessagePattern('main.createCategory')

@@ -20,9 +20,6 @@ export class User {
   @Prop({ default: '' })
   address!: string;
 
-  @Prop({ type: [String], default: [] })
-  wishlistProductIds!: string[];
-
   @Prop({ default: true })
   isActive!: boolean;
 
