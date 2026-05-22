@@ -4,11 +4,14 @@ import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { CartUserDto } from './dto/cart-user.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCardDto } from './dto/create-card.dto';
+import { CreateRefundRequestDto } from './dto/create-refund-request.dto';
+import { ListRefundRequestsDto } from './dto/list-refund-requests.dto';
 import { RemoveCartItemDto } from './dto/remove-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
 import { UpdateDeliveryStatusDto } from './dto/update-delivery-status.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { UpdateRefundRequestStatusDto } from './dto/update-refund-request-status.dto';
 import { CardService } from './card.service';
 
 @Controller()
@@ -53,6 +56,26 @@ export class CardController {
   @MessagePattern('card.findOrdersForUser')
   findOrdersForUser(@Payload() payload: CartUserDto) {
     return this.cardService.findOrdersForUser(payload.userId);
+  }
+
+  @MessagePattern('card.createRefundRequest')
+  createRefundRequest(@Payload() payload: CreateRefundRequestDto) {
+    return this.cardService.createRefundRequest(payload);
+  }
+
+  @MessagePattern('card.findRefundRequestsForCustomer')
+  findRefundRequestsForCustomer(@Payload() payload: CartUserDto) {
+    return this.cardService.findRefundRequestsForCustomer(payload.userId);
+  }
+
+  @MessagePattern('card.findRefundRequests')
+  findRefundRequests(@Payload() payload: ListRefundRequestsDto) {
+    return this.cardService.findRefundRequests(payload);
+  }
+
+  @MessagePattern('card.updateRefundRequestStatus')
+  updateRefundRequestStatus(@Payload() payload: UpdateRefundRequestStatusDto) {
+    return this.cardService.updateRefundRequestStatus(payload);
   }
 
   @MessagePattern('card.findAllOrders')

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   HttpException,
   Injectable,
   InternalServerErrorException,
@@ -20,14 +21,22 @@ import {
   InvoiceDocument,
 } from '@app/common/database/schemas/invoice.schema';
 import { Order, OrderDocument } from '@app/common/database/schemas/order.schema';
+import {
+  RefundRequest,
+  RefundRequestDocument,
+  RefundRequestStatus,
+} from '@app/common/database/schemas/refund-request.schema';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCardDto } from './dto/create-card.dto';
+import { CreateRefundRequestDto } from './dto/create-refund-request.dto';
+import { ListRefundRequestsDto } from './dto/list-refund-requests.dto';
 import { RemoveCartItemDto } from './dto/remove-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
 import { UpdateDeliveryStatusDto } from './dto/update-delivery-status.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { UpdateRefundRequestStatusDto } from './dto/update-refund-request-status.dto';
 import { Card, CardDocument } from './schemas/card.schema';
 import {
   Product,
@@ -55,11 +64,14 @@ export class CardService {
     private readonly deliveryModel: Model<DeliveryDocument>,
     @InjectModel(Invoice.name)
     private readonly invoiceModel: Model<InvoiceDocument>,
+    @InjectModel(RefundRequest.name)
+    private readonly refundRequestModel: Model<RefundRequestDocument>,
   ) {}
 
   private readonly deliveryStatusOrder = ['processing', 'in-transit', 'delivered'] as const;
   private readonly invoiceSiteName = 'aura-clothing.com';
   private readonly invoiceSupportEmail = 'support@aura-clothing.com';
+  private readonly refundReturnWindowDays = 30;
   private readonly mockPaymentApprovals = new Map<string, MockPaymentApproval>();
 
   private handleServiceError(error: unknown, fallbackMessage: string): never {
@@ -114,6 +126,14 @@ export class CardService {
       id: safeInvoice._id.toString(),
       ...safeInvoice,
       hasPdf: Boolean(pdfBase64),
+    };
+  }
+
+  private sanitizeRefundRequest(refundRequest: RefundRequestDocument) {
+    const object = refundRequest.toObject();
+    return {
+      id: object._id.toString(),
+      ...object,
     };
   }
 
@@ -936,6 +956,106 @@ export class CardService {
     return 'processing';
   }
 
+  private assertWithinRefundWindow(order: OrderDocument) {
+    const createdAt =
+      (order as unknown as { createdAt?: Date }).createdAt ?? new Date();
+    const elapsedMs = Date.now() - new Date(createdAt).getTime();
+    const returnWindowMs = this.refundReturnWindowDays * 24 * 60 * 60 * 1000;
+
+    if (elapsedMs > returnWindowMs) {
+      throw new BadRequestException('Refund requests must be opened within 30 days of purchase');
+    }
+  }
+
+  private calculateRefundAmount(item: {
+    unitPrice: number;
+    discountRate?: number;
+    quantity: number;
+  }) {
+    const discountedUnitPrice =
+      item.unitPrice * (1 - Number(item.discountRate ?? 0) / 100);
+    return Math.round(discountedUnitPrice * item.quantity * 100) / 100;
+  }
+
+  private shouldRestoreRefundStock(status: RefundRequestStatus) {
+    return status === 'approved' || status === 'completed';
+  }
+
+  private async restoreRefundStock(refundRequest: RefundRequestDocument) {
+    if (
+      refundRequest.stockRestored ||
+      !this.shouldRestoreRefundStock(refundRequest.status)
+    ) {
+      return;
+    }
+
+    const stockRestoreClaim = await this.refundRequestModel
+      .updateOne(
+        { _id: refundRequest._id, stockRestored: false },
+        { $set: { stockRestored: true } },
+      )
+      .exec();
+
+    if (stockRestoreClaim.modifiedCount !== 1) {
+      refundRequest.stockRestored = true;
+      return;
+    }
+
+    const result = await this.productModel
+      .updateOne(
+        { _id: refundRequest.orderItemProductId },
+        { $inc: { stock: refundRequest.quantity } },
+      )
+      .exec();
+
+    if (result.modifiedCount !== 1) {
+      await this.refundRequestModel
+        .updateOne(
+          { _id: refundRequest._id },
+          { $set: { stockRestored: false } },
+        )
+        .exec();
+      throw new NotFoundException('Refund product was not found for stock restore');
+    }
+
+    refundRequest.stockRestored = true;
+  }
+
+  private async refreshRefundedOrderStatus(orderId: string) {
+    const order = await this.orderModel.findById(orderId).exec();
+
+    if (!order) {
+      return;
+    }
+
+    const activeRefunds = await this.refundRequestModel
+      .find({
+        orderId,
+        status: { $in: ['approved', 'completed'] },
+      })
+      .select('orderItemProductId quantity')
+      .lean()
+      .exec();
+    const refundedByProduct = new Map<string, number>();
+
+    for (const refund of activeRefunds) {
+      refundedByProduct.set(
+        refund.orderItemProductId,
+        (refundedByProduct.get(refund.orderItemProductId) ?? 0) +
+          refund.quantity,
+      );
+    }
+
+    const fullyRefunded = order.items.every(
+      (item) => (refundedByProduct.get(item.productId) ?? 0) >= item.quantity,
+    );
+
+    if (fullyRefunded && order.status !== 'refunded') {
+      order.status = 'refunded';
+      await order.save();
+    }
+  }
+
   private consumeMockPaymentApproval(userId: string, paymentId: string) {
     const approval = this.mockPaymentApprovals.get(paymentId);
 
@@ -1506,6 +1626,163 @@ export class CardService {
       return orders.map((order) => this.sanitizeOrder(order));
     } catch (error) {
       this.handleServiceError(error, 'Orders could not be listed');
+    }
+  }
+
+  async createRefundRequest(payload: CreateRefundRequestDto) {
+    try {
+      const customerId = payload.customerId.trim();
+      const orderId = payload.orderId.trim();
+      const productId = payload.productId.trim();
+
+      if (!customerId || !orderId || !productId) {
+        throw new BadRequestException('customerId, orderId and productId are required');
+      }
+
+      const order = await this.orderModel.findById(orderId).exec();
+
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+
+      if (order.customerId !== customerId) {
+        throw new ForbiddenException('You can only refund your own orders');
+      }
+
+      if (!order.paymentConfirmed) {
+        throw new BadRequestException('Only paid orders can be refunded');
+      }
+
+      this.assertWithinRefundWindow(order);
+
+      const orderItem = order.items.find((item) => item.productId === productId);
+
+      if (!orderItem) {
+        throw new NotFoundException('Product was not found in this order');
+      }
+
+      const activeRefunds = await this.refundRequestModel
+        .find({
+          orderId,
+          orderItemProductId: productId,
+          customerId,
+          status: { $ne: 'rejected' },
+        })
+        .select('quantity')
+        .lean()
+        .exec();
+      const alreadyRequestedQuantity = activeRefunds.reduce(
+        (sum, refund) => sum + refund.quantity,
+        0,
+      );
+      const refundableQuantity = orderItem.quantity - alreadyRequestedQuantity;
+
+      if (payload.quantity > refundableQuantity) {
+        throw new BadRequestException(
+          `Refund quantity exceeds refundable quantity. Available quantity: ${Math.max(refundableQuantity, 0)}`,
+        );
+      }
+
+      const refundRequest = await this.refundRequestModel.create({
+        orderId,
+        orderItemProductId: productId,
+        productName: orderItem.productName,
+        customerId,
+        quantity: payload.quantity,
+        unitPrice: orderItem.unitPrice,
+        discountRate: orderItem.discountRate ?? 0,
+        refundedAmount: this.calculateRefundAmount({
+          unitPrice: orderItem.unitPrice,
+          discountRate: orderItem.discountRate,
+          quantity: payload.quantity,
+        }),
+        reason: payload.reason?.trim() ?? '',
+        status: 'pending',
+      });
+
+      return this.sanitizeRefundRequest(refundRequest);
+    } catch (error) {
+      this.handleServiceError(error, 'Refund request could not be created');
+    }
+  }
+
+  async findRefundRequestsForCustomer(userId: string) {
+    try {
+      const refundRequests = await this.refundRequestModel
+        .find({ customerId: userId.trim() })
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return refundRequests.map((refundRequest) =>
+        this.sanitizeRefundRequest(refundRequest),
+      );
+    } catch (error) {
+      this.handleServiceError(error, 'Refund requests could not be listed');
+    }
+  }
+
+  async findRefundRequests(payload: ListRefundRequestsDto = {}) {
+    try {
+      const filter: { customerId?: string; status?: RefundRequestStatus } = {};
+
+      if (payload.customerId?.trim()) {
+        filter.customerId = payload.customerId.trim();
+      }
+
+      if (payload.status) {
+        filter.status = payload.status;
+      }
+
+      const refundRequests = await this.refundRequestModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return refundRequests.map((refundRequest) =>
+        this.sanitizeRefundRequest(refundRequest),
+      );
+    } catch (error) {
+      this.handleServiceError(error, 'Refund requests could not be listed');
+    }
+  }
+
+  async updateRefundRequestStatus(payload: UpdateRefundRequestStatusDto) {
+    try {
+      const refundRequest = await this.refundRequestModel
+        .findById(payload.id)
+        .exec();
+
+      if (!refundRequest) {
+        throw new NotFoundException('Refund request not found');
+      }
+
+      if (refundRequest.status === 'rejected' || refundRequest.status === 'completed') {
+        throw new BadRequestException(`Refund request is already ${refundRequest.status}`);
+      }
+
+      if (refundRequest.status === 'approved' && payload.status === 'rejected') {
+        throw new BadRequestException('Approved refund requests cannot be rejected');
+      }
+
+      refundRequest.status = payload.status;
+      refundRequest.decisionNote = payload.decisionNote?.trim() ?? refundRequest.decisionNote;
+      refundRequest.reviewedBy = payload.reviewedBy?.trim() ?? refundRequest.reviewedBy;
+
+      if (payload.status === 'approved' || payload.status === 'rejected') {
+        refundRequest.reviewedAt = new Date();
+      }
+
+      if (payload.status === 'completed') {
+        refundRequest.completedAt = new Date();
+      }
+
+      await refundRequest.save();
+      await this.restoreRefundStock(refundRequest);
+      await this.refreshRefundedOrderStatus(refundRequest.orderId);
+
+      return this.sanitizeRefundRequest(refundRequest);
+    } catch (error) {
+      this.handleServiceError(error, 'Refund request status could not be updated');
     }
   }
 

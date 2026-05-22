@@ -46,6 +46,7 @@ import { UpdateProductDto } from '../../main-service/src/dto/update-product.dto'
 import { AddCartItemDto } from '../../card-service/src/dto/add-cart-item.dto';
 import { CartUserDto } from '../../card-service/src/dto/cart-user.dto';
 import { CreateCardDto } from '../../card-service/src/dto/create-card.dto';
+import { ListRefundRequestsDto } from '../../card-service/src/dto/list-refund-requests.dto';
 import { RemoveCartItemDto } from '../../card-service/src/dto/remove-cart-item.dto';
 import { UpdateCartItemDto } from '../../card-service/src/dto/update-cart-item.dto';
 import { UpdateCardDto } from '../../card-service/src/dto/update-card.dto';
@@ -69,6 +70,28 @@ class MockPaymentRequestDto {
   @IsOptional()
   @IsString()
   orderId?: string;
+}
+
+class CreateRefundRequestBodyDto {
+  @IsString()
+  productId!: string;
+
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+class UpdateRefundRequestBodyDto {
+  @IsIn(['approved', 'rejected', 'completed'])
+  status!: 'approved' | 'rejected' | 'completed';
+
+  @IsOptional()
+  @IsString()
+  decisionNote?: string;
 }
 
 
@@ -957,6 +980,65 @@ export class AppController {
     this.requireCustomer(authUser);
     return this.sendMessage(this.cardClient, 'card.findOrdersForUser', {
       userId: authUser.sub,
+    });
+  }
+
+  @Post('orders/:id/refunds')
+  @HttpCode(HttpStatus.CREATED)
+  async createRefundRequest(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: CreateRefundRequestBodyDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.createRefundRequest', {
+      customerId: authUser.sub,
+      orderId: id,
+      productId: dto.productId,
+      quantity: dto.quantity,
+      reason: dto.reason,
+    });
+  }
+
+  @Get('refund-requests/my')
+  async findMyRefundRequests(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.findRefundRequestsForCustomer', {
+      userId: authUser.sub,
+    });
+  }
+
+  @Get('manager/refund-requests')
+  async findManagerRefundRequests(
+    @Headers('authorization') authorization: string | undefined,
+    @Query() query: ListRefundRequestsDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireSalesManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.findRefundRequests', query);
+  }
+
+  @Patch('manager/refund-requests/:id')
+  async updateManagerRefundRequest(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() dto: UpdateRefundRequestBodyDto,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireSalesManager(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.updateRefundRequestStatus', {
+      id,
+      status: dto.status,
+      decisionNote: dto.decisionNote,
+      reviewedBy: authUser.sub,
     });
   }
 
