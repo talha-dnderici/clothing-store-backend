@@ -9,6 +9,11 @@ export class UpdateProductPricingDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
+  costPrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
   @Max(100)
   discountRate?: number;
 

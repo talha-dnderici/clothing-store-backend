@@ -7,6 +7,7 @@ export interface ProductInterface {
   categoryId: string;
   categoryIds: string[];
   price: number;
+  costPrice?: number;
   stock: number;
   warrantyStatus?: boolean;
   distributor?: string;

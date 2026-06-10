@@ -5,8 +5,10 @@ import { CartUserDto } from './dto/cart-user.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { CreateRefundRequestDto } from './dto/create-refund-request.dto';
+import { InvoiceQueryDto } from './dto/invoice-query.dto';
 import { ListRefundRequestsDto } from './dto/list-refund-requests.dto';
 import { RemoveCartItemDto } from './dto/remove-cart-item.dto';
+import { RevenueQueryDto } from './dto/revenue-query.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
 import { UpdateDeliveryStatusDto } from './dto/update-delivery-status.dto';
@@ -83,6 +85,21 @@ export class CardController {
     return this.cardService.findAllOrders();
   }
 
+  @MessagePattern('card.findInvoices')
+  findInvoices(@Payload() payload: InvoiceQueryDto) {
+    return this.cardService.findInvoices(payload);
+  }
+
+  @MessagePattern('card.getRevenueReport')
+  getRevenueReport(@Payload() payload: RevenueQueryDto) {
+    return this.cardService.getRevenueReport(payload);
+  }
+
+  @MessagePattern('card.getProfitLossReport')
+  getProfitLossReport(@Payload() payload: RevenueQueryDto) {
+    return this.cardService.getProfitLossReport(payload);
+  }
+
   @MessagePattern('card.findOrderDeliveryStatusForUser')
   findOrderDeliveryStatusForUser(@Payload() payload: CartUserDto) {
     return this.cardService.findOrderDeliveryStatusForUser(payload.userId);
@@ -104,8 +121,8 @@ export class CardController {
   }
 
   @MessagePattern('card.emailOrderInvoice')
-  emailOrderInvoice(@Payload() id: string) {
-    return this.cardService.emailOrderInvoice(id);
+  emailOrderInvoice(@Payload() payload: string | { orderId: string; recipientEmail?: string }) {
+    return this.cardService.emailOrderInvoice(payload);
   }
 
   @MessagePattern('card.mockPayment')

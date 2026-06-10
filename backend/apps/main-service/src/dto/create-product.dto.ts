@@ -38,6 +38,11 @@ export class CreateProductDto {
   @Min(0)
   price!: number;
 
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  costPrice?: number;
+
   @IsNumber()
   @Min(0)
   stock!: number;
