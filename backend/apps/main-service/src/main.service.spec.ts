@@ -7,6 +7,8 @@ describe('MainService BE-12 Unit Tests', () => {
   let mockProductModel: any;
   let mockCategoryModel: any;
   let mockCommentModel: any;
+  let mockWishlistModel: any;
+  let mockNotificationModel: any;
 
   beforeEach(() => {
     mockProductModel = {
@@ -32,10 +34,15 @@ describe('MainService BE-12 Unit Tests', () => {
       exec: jest.fn(),
     };
 
+    mockWishlistModel = {};
+    mockNotificationModel = {};
+
     mainService = new MainService(
       mockProductModel as any,
       mockCategoryModel as any,
       mockCommentModel as any,
+      mockWishlistModel as any,
+      mockNotificationModel as any,
     );
   });
 
