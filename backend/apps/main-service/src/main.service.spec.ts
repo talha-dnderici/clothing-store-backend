@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { MainService } from './main.service';
 import { Model } from 'mongoose';
 
@@ -19,6 +19,7 @@ describe('MainService BE-12 Unit Tests', () => {
       exec: jest.fn(),
       countDocuments: jest.fn().mockReturnThis(),
       findById: jest.fn().mockReturnThis(),
+      updateMany: jest.fn().mockReturnThis(),
     };
 
     mockCategoryModel = {
@@ -27,6 +28,8 @@ describe('MainService BE-12 Unit Tests', () => {
       lean: jest.fn().mockReturnThis(),
       exec: jest.fn(),
       findOne: jest.fn().mockReturnThis(),
+      findById: jest.fn().mockReturnThis(),
+      findByIdAndDelete: jest.fn().mockReturnThis(),
     };
 
     mockCommentModel = {
@@ -138,6 +141,36 @@ describe('MainService BE-12 Unit Tests', () => {
       await expect(mainService.updateStock('prod1', { adjustment: -10 }))
         .rejects
         .toThrow(BadRequestException);
+    });
+  });
+
+  describe('deleteCategory', () => {
+    it('7. should unlink linked products before deleting the category', async () => {
+      mockCategoryModel.exec
+        .mockResolvedValueOnce({ _id: 'cat1', name: 'Demo Collection' })
+        .mockResolvedValueOnce({});
+      mockProductModel.exec.mockResolvedValueOnce({ modifiedCount: 2 });
+
+      const result = await mainService.deleteCategory('cat1');
+
+      expect(mockProductModel.updateMany).toHaveBeenCalledWith(
+        { categoryIds: 'cat1' },
+        { $pull: { categoryIds: 'cat1' } },
+      );
+      expect(mockCategoryModel.findByIdAndDelete).toHaveBeenCalledWith('cat1');
+      expect(result).toEqual({
+        id: 'cat1',
+        deleted: true,
+        unlinkedProducts: 2,
+      });
+    });
+
+    it('8. should throw NotFoundException when the category does not exist', async () => {
+      mockCategoryModel.exec.mockResolvedValueOnce(null);
+
+      await expect(mainService.deleteCategory('missing-cat')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });
