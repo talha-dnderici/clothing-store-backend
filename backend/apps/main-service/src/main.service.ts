@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   HttpException,
   Injectable,
   InternalServerErrorException,
@@ -1056,23 +1055,22 @@ export class MainService {
 
   async deleteCategory(id: string) {
     try {
-      const linkedProduct = await this.productModel.findOne({ categoryIds: id }).exec();
-
-      if (linkedProduct) {
-        throw new ConflictException(
-          'Category cannot be deleted while products are still linked to it',
-        );
-      }
-
-      const category = await this.categoryModel.findByIdAndDelete(id).exec();
+      const category = await this.categoryModel.findById(id).exec();
 
       if (!category) {
         throw new NotFoundException('Category not found');
       }
 
+      const unlinkResult = await this.productModel
+        .updateMany({ categoryIds: id }, { $pull: { categoryIds: id } })
+        .exec();
+
+      await this.categoryModel.findByIdAndDelete(id).exec();
+
       return {
         id,
         deleted: true,
+        unlinkedProducts: unlinkResult.modifiedCount ?? 0,
       };
     } catch (error) {
       this.handleServiceError(error, 'Category could not be deleted');

@@ -4,6 +4,7 @@ import { Navbar } from './components/Navbar';
 import { CategoryMenu } from './components/CategoryMenu';
 import { api } from './utils/api';
 import { CatalogCategory } from './types/catalog';
+import { CATALOG_CHANGED_EVENT } from './utils/catalogEvents';
 
 export default function Root() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -12,31 +13,36 @@ export default function Root() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    let cancelled = false;
+  const refreshCategories = useCallback(async () => {
+    try {
+      const res = await api.getCategories();
+      const names = (Array.isArray(res.data) ? res.data : [])
+        .map((category: CatalogCategory) => category.name?.trim())
+        .filter((name: string | undefined): name is string => Boolean(name));
+      const nextCategories = ['All', ...new Set(names)];
 
-    api.getCategories()
-      .then((res) => {
-        if (cancelled) {
-          return;
-        }
-
-        const names = (Array.isArray(res.data) ? res.data : [])
-          .map((category: CatalogCategory) => category.name?.trim())
-          .filter((name: string | undefined): name is string => Boolean(name));
-
-        setCategories(['All', ...new Set(names)]);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCategories(['All']);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      setCategories(nextCategories);
+      setActiveCategory((current) =>
+        current === 'All' || nextCategories.includes(current) ? current : 'All',
+      );
+    } catch {
+      setCategories(['All']);
+      setActiveCategory('All');
+    }
   }, []);
+
+  useEffect(() => {
+    refreshCategories();
+  }, [refreshCategories]);
+
+  useEffect(() => {
+    const handleCatalogChanged = () => {
+      refreshCategories();
+    };
+
+    window.addEventListener(CATALOG_CHANGED_EVENT, handleCatalogChanged);
+    return () => window.removeEventListener(CATALOG_CHANGED_EVENT, handleCatalogChanged);
+  }, [refreshCategories]);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery((prev) => {

@@ -59,6 +59,21 @@ export const api = {
   getCategories() {
     return request('/categories');
   },
+  createCategory(token: string, body: Record<string, unknown>) {
+    return request('/categories', { method: 'POST', body: JSON.stringify(body) }, token);
+  },
+  createProduct(token: string, body: Record<string, unknown>) {
+    return request('/products', { method: 'POST', body: JSON.stringify(body) }, token);
+  },
+  deleteProduct(token: string, productId: string) {
+    return request(`/products/${productId}`, { method: 'DELETE' }, token);
+  },
+  deleteCategory(token: string, categoryId: string) {
+    return request(`/categories/${categoryId}`, { method: 'DELETE' }, token);
+  },
+  getLowStockProducts(token: string, threshold = 5) {
+    return request(`/manager/products/low-stock?threshold=${threshold}`, undefined, token);
+  },
 
   // Auth
   login(body: { email: string; password: string }) {

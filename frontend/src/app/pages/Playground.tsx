@@ -6,21 +6,34 @@ import {
   DollarSign,
   ExternalLink,
   FileText,
+  FolderTree,
   ListChecks,
   Mail,
   MessageSquare,
   PackageCheck,
+  Plus,
   RefreshCw,
   Send,
   ShieldCheck,
   Square,
   Star,
   Tag,
+  Trash2,
+  Undo2,
   X,
   XCircle,
 } from 'lucide-react';
 import { api } from '../utils/api';
 import { EndpointTester } from '../components/EndpointTester';
+import {
+  DeletedCategorySnapshot,
+  DeletedProductSnapshot,
+  loadDeletedCategorySnapshot,
+  loadDeletedProductSnapshot,
+  notifyCatalogChanged,
+  saveDeletedCategorySnapshot,
+  saveDeletedProductSnapshot,
+} from '../utils/catalogEvents';
 import { mapProducts } from '../utils/mapProduct';
 import { CatalogProduct } from '../types/catalog';
 
@@ -108,6 +121,14 @@ type LogEntry = {
   message: string;
 };
 
+type CategoryItem = {
+  id: string;
+  name: string;
+  slug?: string;
+  description?: string;
+  isActive?: boolean;
+};
+
 const customerCredentials = {
   email: 'customer@aura.test',
   password: 'password123',
@@ -145,6 +166,14 @@ function nextOrderStatus(status: Order['status']) {
   return null;
 }
 
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
 export default function Playground() {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [selectedProductId, setSelectedProductId] = useState('');
@@ -169,6 +198,26 @@ export default function Playground() {
   const [discountInput, setDiscountInput] = useState('0');
   const [discountActive, setDiscountActive] = useState(false);
   const [stockInput, setStockInput] = useState('');
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [lowStockProducts, setLowStockProducts] = useState<CatalogProduct[]>([]);
+  const [newCategoryName, setNewCategoryName] = useState('Demo Collection');
+  const [newCategoryDescription, setNewCategoryDescription] = useState(
+    'Category created by the product manager during the demo.',
+  );
+  const [newProductName, setNewProductName] = useState('Product D');
+  const [newProductDescription, setNewProductDescription] = useState(
+    'New catalog item added live by the product manager.',
+  );
+  const [newProductPrice, setNewProductPrice] = useState('49.99');
+  const [newProductStock, setNewProductStock] = useState('25');
+  const [newProductCategoryId, setNewProductCategoryId] = useState('');
+  const [productToRemoveId, setProductToRemoveId] = useState('');
+  const [lastDeletedCategory, setLastDeletedCategory] = useState<DeletedCategorySnapshot | null>(
+    () => loadDeletedCategorySnapshot(),
+  );
+  const [lastDeletedProduct, setLastDeletedProduct] = useState<DeletedProductSnapshot | null>(
+    () => loadDeletedProductSnapshot(),
+  );
   const [busyAction, setBusyAction] = useState('');
   const [bulkApproveMode, setBulkApproveMode] = useState(false);
   const [selectedPendingIds, setSelectedPendingIds] = useState<Set<string>>(new Set());
@@ -185,6 +234,11 @@ export default function Playground() {
   const selectedProduct = useMemo(
     () => products.find((product) => product.id === selectedProductId) ?? null,
     [products, selectedProductId],
+  );
+
+  const productToRemove = useMemo(
+    () => products.find((product) => product.id === productToRemoveId) ?? null,
+    [products, productToRemoveId],
   );
 
   const addLog = (message: string, tone: LogEntry['tone'] = 'ok') => {
@@ -232,7 +286,7 @@ export default function Playground() {
   };
 
   const loadProducts = async () => {
-    const response = await api.getProducts({ limit: '24' });
+    const response = await api.getProducts({ limit: '100' });
     const mappedProducts = mapProducts(
       ((response.data as { items?: unknown[] }).items ?? []) as any[],
     );
@@ -240,7 +294,57 @@ export default function Playground() {
 
     if (!selectedProductId && mappedProducts[0]) {
       setSelectedProductId(mappedProducts[0].id);
+    } else if (
+      selectedProductId &&
+      !mappedProducts.some((product) => product.id === selectedProductId) &&
+      mappedProducts[0]
+    ) {
+      setSelectedProductId(mappedProducts[0].id);
     }
+  };
+
+  const loadCategories = async () => {
+    const response = await api.getCategories();
+    const list = Array.isArray(response.data) ? (response.data as CategoryItem[]) : [];
+    setCategories(list);
+    if (!newProductCategoryId && list[0]) {
+      setNewProductCategoryId(list[0].id);
+    }
+  };
+
+  const loadLowStockProducts = async () => {
+    if (!productManager?.token) return;
+    const response = await api.getLowStockProducts(productManager.token, 5);
+    setLowStockProducts(mapProducts((response.data as unknown[]) ?? []));
+  };
+
+  const refreshCatalog = async () => {
+    await Promise.all([
+      loadCategories(),
+      loadProducts(),
+      productManager?.token ? loadLowStockProducts() : Promise.resolve(),
+    ]);
+    notifyCatalogChanged();
+  };
+
+  const rememberDeletedCategory = (snapshot: DeletedCategorySnapshot) => {
+    setLastDeletedCategory(snapshot);
+    saveDeletedCategorySnapshot(snapshot);
+  };
+
+  const rememberDeletedProduct = (snapshot: DeletedProductSnapshot) => {
+    setLastDeletedProduct(snapshot);
+    saveDeletedProductSnapshot(snapshot);
+  };
+
+  const clearDeletedCategory = () => {
+    setLastDeletedCategory(null);
+    saveDeletedCategorySnapshot(null);
+  };
+
+  const clearDeletedProduct = () => {
+    setLastDeletedProduct(null);
+    saveDeletedProductSnapshot(null);
   };
 
   const refreshFeedback = async (productId = selectedProductId) => {
@@ -529,12 +633,211 @@ export default function Playground() {
         : `Stock updated for ${selectedProduct.name}.`,
       'ok',
     );
-    await loadProducts();
+    await refreshCatalog();
+  };
+
+  const createCategory = async () => {
+    if (!productManager) throw new Error('Product manager login is required.');
+    const name = newCategoryName.trim();
+    if (!name) throw new Error('Category name is required.');
+
+    const response = await api.createCategory(productManager.token, {
+      name,
+      description: newCategoryDescription.trim() || `Category for ${name}`,
+      slug: `${slugify(name)}-${Date.now()}`,
+      isActive: true,
+    });
+    const created = response.data as CategoryItem;
+    addLog(`Category "${created.name}" created.`, 'ok');
+    setNewProductCategoryId(created.id);
+    await refreshCatalog();
+  };
+
+  const createProduct = async () => {
+    if (!productManager) throw new Error('Product manager login is required.');
+    if (!newProductCategoryId) throw new Error('Select a category first.');
+
+    const name = newProductName.trim();
+    const price = Number(newProductPrice);
+    const stock = Number(newProductStock);
+    if (!name) throw new Error('Product name is required.');
+    if (Number.isNaN(price) || price < 0) throw new Error('Price is invalid.');
+    if (Number.isNaN(stock) || stock < 0) throw new Error('Stock is invalid.');
+
+    const stamp = Date.now();
+    const response = await api.createProduct(productManager.token, {
+      name,
+      description: newProductDescription.trim() || `Demo product ${name}`,
+      categoryIds: [newProductCategoryId],
+      price,
+      stock,
+      serialNumber: `DEMO-${stamp}`,
+      model: `DEMO-MODEL-${stamp}`,
+      distributor: 'AURA Demo Warehouse',
+      popularity: 50,
+      imageUrl:
+        'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080',
+    });
+    const created = response.data as { id: string; name: string };
+    addLog(`Product "${created.name}" created under the selected category.`, 'ok');
+    setSelectedProductId(created.id);
+    await refreshCatalog();
+  };
+
+  const deleteCategory = async (category: CategoryItem) => {
+    if (!productManager) throw new Error('Product manager login is required.');
+    if (
+      !window.confirm(
+        `Remove category "${category.name}"? You can restore it from the recovery panel below.`,
+      )
+    ) {
+      return;
+    }
+
+    const response = await api.deleteCategory(productManager.token, category.id);
+    const result = response.data as { unlinkedProducts?: number };
+
+    rememberDeletedCategory({
+      name: category.name,
+      description: category.description || `Category for ${category.name}`,
+      slug: category.slug,
+      isActive: category.isActive ?? true,
+    });
+
+    if (newProductCategoryId === category.id) {
+      setNewProductCategoryId('');
+    }
+
+    addLog(
+      result.unlinkedProducts
+        ? `Category "${category.name}" removed. ${result.unlinkedProducts} linked product(s) were kept in the catalog without this category.`
+        : `Category "${category.name}" removed.`,
+      'ok',
+    );
+    await refreshCatalog();
+  };
+
+  const deleteSelectedProduct = async () => {
+    if (!productManager || !productToRemove) {
+      throw new Error('Choose a product to remove from the Remove Product dropdown.');
+    }
+    if (
+      !window.confirm(
+        `Remove "${productToRemove.name}" from the catalog? You can restore it from the recovery panel below.`,
+      )
+    ) {
+      return;
+    }
+
+    const fullProductResponse = await api.getProduct(productToRemove.id);
+    const fullProduct = fullProductResponse.data as {
+      name: string;
+      description?: string;
+      categoryIds?: string[];
+      categoryId?: string | null;
+      price: number;
+      stock?: number;
+      stockQuantity?: number;
+      serialNumber?: string;
+      model?: string;
+      distributor?: string;
+      popularity?: number;
+      discountRate?: number;
+      discountActive?: boolean;
+      imageUrl?: string;
+      warrantyStatus?: boolean;
+    };
+
+    const categoryIds =
+      fullProduct.categoryIds?.length
+        ? fullProduct.categoryIds
+        : fullProduct.categoryId
+          ? [fullProduct.categoryId]
+          : newProductCategoryId
+            ? [newProductCategoryId]
+            : [];
+
+    rememberDeletedProduct({
+      name: fullProduct.name,
+      description: fullProduct.description || '',
+      categoryIds,
+      price: fullProduct.price,
+      stock: fullProduct.stock ?? fullProduct.stockQuantity ?? 0,
+      serialNumber: fullProduct.serialNumber,
+      model: fullProduct.model,
+      distributor: fullProduct.distributor,
+      popularity: fullProduct.popularity,
+      discountRate: fullProduct.discountRate,
+      discountActive: fullProduct.discountActive,
+      imageUrl: fullProduct.imageUrl,
+      warrantyStatus: fullProduct.warrantyStatus,
+    });
+
+    await api.deleteProduct(productManager.token, productToRemove.id);
+    addLog(`Product "${productToRemove.name}" removed.`, 'ok');
+    if (selectedProductId === productToRemove.id) {
+      setSelectedProductId('');
+    }
+    setProductToRemoveId('');
+    await refreshCatalog();
+  };
+
+  const restoreLastDeletedCategory = async () => {
+    if (!productManager || !lastDeletedCategory) {
+      throw new Error('No removed category is available to restore.');
+    }
+
+    const response = await api.createCategory(productManager.token, {
+      name: lastDeletedCategory.name,
+      description: lastDeletedCategory.description,
+      slug: lastDeletedCategory.slug
+        ? `${lastDeletedCategory.slug}-restored-${Date.now()}`
+        : `${slugify(lastDeletedCategory.name)}-restored-${Date.now()}`,
+      isActive: lastDeletedCategory.isActive ?? true,
+    });
+    const restored = response.data as CategoryItem;
+    clearDeletedCategory();
+    setNewProductCategoryId(restored.id);
+    addLog(`Category "${restored.name}" restored.`, 'ok');
+    await refreshCatalog();
+  };
+
+  const restoreLastDeletedProduct = async () => {
+    if (!productManager || !lastDeletedProduct) {
+      throw new Error('No removed product is available to restore.');
+    }
+    if (!lastDeletedProduct.categoryIds.length) {
+      throw new Error('Restore the product category first, then try again.');
+    }
+
+    const stamp = Date.now();
+    const response = await api.createProduct(productManager.token, {
+      name: lastDeletedProduct.name,
+      description: lastDeletedProduct.description,
+      categoryIds: lastDeletedProduct.categoryIds,
+      price: lastDeletedProduct.price,
+      stock: lastDeletedProduct.stock,
+      serialNumber: lastDeletedProduct.serialNumber || `RESTORED-${stamp}`,
+      model: lastDeletedProduct.model || `RESTORED-MODEL-${stamp}`,
+      distributor: lastDeletedProduct.distributor || 'AURA Demo Warehouse',
+      popularity: lastDeletedProduct.popularity ?? 50,
+      discountRate: lastDeletedProduct.discountRate ?? 0,
+      discountActive: lastDeletedProduct.discountActive ?? false,
+      imageUrl:
+        lastDeletedProduct.imageUrl ||
+        'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080',
+      warrantyStatus: lastDeletedProduct.warrantyStatus ?? false,
+    });
+    const restored = response.data as { id: string; name: string };
+    clearDeletedProduct();
+    setSelectedProductId(restored.id);
+    addLog(`Product "${restored.name}" restored.`, 'ok');
+    await refreshCatalog();
   };
 
   useEffect(() => {
     run('load-products', async () => {
-      await loadProducts();
+      await refreshCatalog();
       addLog('Products loaded.', 'ok');
     });
   }, []);
@@ -554,6 +857,19 @@ export default function Playground() {
     setDiscountActive(selectedProduct.discountActive);
     setStockInput(String(selectedProduct.stockQuantity ?? 0));
   }, [selectedProduct]);
+
+  useEffect(() => {
+    if (selectedProductId && products.some((product) => product.id === selectedProductId)) {
+      setProductToRemoveId(selectedProductId);
+    }
+  }, [selectedProductId, products]);
+
+  useEffect(() => {
+    if (productToRemoveId && products.some((product) => product.id === productToRemoveId)) {
+      return;
+    }
+    setProductToRemoveId(products[0]?.id ?? '');
+  }, [products, productToRemoveId]);
 
   useEffect(() => {
     refreshOrders().catch(() => undefined);
@@ -578,6 +894,7 @@ export default function Playground() {
   // path that fetched pending comments before).
   useEffect(() => {
     if (!productManager?.token) return;
+    refreshCatalog().catch(() => undefined);
     refreshPendingComments().catch((error) => {
       addLog(
         error instanceof Error
@@ -790,9 +1107,23 @@ export default function Playground() {
                     </span>
                   )}
                 </div>
-                <div className="mt-1 text-stone-500">
-                  Stock {selectedProduct?.stockQuantity ?? 0} / Rating{' '}
-                  {ratingSummary.ratingAverage || selectedProduct?.rating || 0}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-stone-500">
+                  <span>
+                    Stock {selectedProduct?.stockQuantity ?? 0} / Rating{' '}
+                    {ratingSummary.ratingAverage || selectedProduct?.rating || 0}
+                  </span>
+                  {selectedProduct?.stockQuantity === 0 ? (
+                    <span className="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700">
+                      Out of stock
+                    </span>
+                  ) : null}
+                  {selectedProduct &&
+                  selectedProduct.stockQuantity > 0 &&
+                  selectedProduct.stockQuantity <= 5 ? (
+                    <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700">
+                      Low stock
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -835,8 +1166,246 @@ export default function Playground() {
                 </div>
               )}
             </div>
+
+            {productManager && lowStockProducts.length > 0 ? (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+                <div className="mb-2 text-xs font-bold uppercase tracking-wider text-amber-800">
+                  Low / out of stock
+                </div>
+                <ul className="space-y-2 text-sm text-amber-900">
+                  {lowStockProducts.map((product) => (
+                    <li key={product.id} className="flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProductId(product.id)}
+                        className="truncate text-left font-semibold hover:underline"
+                      >
+                        {product.name}
+                      </button>
+                      <span className="shrink-0 font-bold">
+                        {product.stockQuantity === 0 ? 'Out of stock' : `${product.stockQuantity} left`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </section>
         </div>
+
+        <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <FolderTree className="h-5 w-5 text-indigo-700" />
+              <div>
+                <h2 className="text-xl font-extrabold text-stone-950">Catalog Management</h2>
+                <p className="text-sm text-stone-500">
+                  Categories, new products, and removals for the product manager demo.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => run('refresh-catalog', refreshCatalog)}
+              disabled={Boolean(busyAction)}
+              className="inline-flex items-center gap-2 rounded-md border border-stone-300 px-3 py-2 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+            >
+              <RefreshCw size={16} />
+              Refresh
+            </button>
+          </div>
+
+          {!productManager ? (
+            <p className="text-sm text-stone-600">
+              Login as product manager (`manager@aura.test`) to manage categories and products.
+            </p>
+          ) : (
+            <div className="grid gap-6 xl:grid-cols-2">
+              <div className="rounded-lg border border-stone-200 p-4">
+                <h3 className="text-sm font-extrabold text-stone-950">Categories</h3>
+                <ul className="mt-3 max-h-40 space-y-2 overflow-y-auto text-sm text-stone-700">
+                  {categories.map((category) => (
+                    <li
+                      key={category.id}
+                      className="flex items-start justify-between gap-3 rounded-md border border-stone-200 bg-stone-50 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-stone-900">{category.name}</div>
+                        {category.description ? (
+                          <div className="mt-1 text-xs text-stone-500">{category.description}</div>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => run(`delete-category-${category.id}`, () => deleteCategory(category))}
+                        disabled={Boolean(busyAction)}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                        title={`Remove ${category.name}`}
+                      >
+                        <Trash2 size={12} />
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                  {!categories.length ? (
+                    <li className="text-stone-500">No categories loaded yet.</li>
+                  ) : null}
+                </ul>
+
+                <div className="mt-4 grid gap-3">
+                  <input
+                    value={newCategoryName}
+                    onChange={(event) => setNewCategoryName(event.target.value)}
+                    className="h-11 rounded-md border border-stone-300 px-3 text-sm font-semibold"
+                    placeholder="New category name"
+                  />
+                  <textarea
+                    value={newCategoryDescription}
+                    onChange={(event) => setNewCategoryDescription(event.target.value)}
+                    rows={2}
+                    className="rounded-md border border-stone-300 px-3 py-2 text-sm"
+                    placeholder="Category description"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => run('create-category', createCategory)}
+                    disabled={Boolean(busyAction)}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-indigo-700 px-4 text-sm font-extrabold text-white hover:bg-indigo-800 disabled:opacity-50"
+                  >
+                    <Plus size={16} />
+                    Add Category
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-stone-200 p-4">
+                <h3 className="text-sm font-extrabold text-stone-950">Add Product</h3>
+                <div className="mt-4 grid gap-3">
+                  <input
+                    value={newProductName}
+                    onChange={(event) => setNewProductName(event.target.value)}
+                    className="h-11 rounded-md border border-stone-300 px-3 text-sm font-semibold"
+                    placeholder="Product name"
+                  />
+                  <textarea
+                    value={newProductDescription}
+                    onChange={(event) => setNewProductDescription(event.target.value)}
+                    rows={2}
+                    className="rounded-md border border-stone-300 px-3 py-2 text-sm"
+                    placeholder="Product description"
+                  />
+                  <select
+                    value={newProductCategoryId}
+                    onChange={(event) => setNewProductCategoryId(event.target.value)}
+                    className="h-11 rounded-md border border-stone-300 bg-white px-3 text-sm font-semibold"
+                  >
+                    <option value="">Select category</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      value={newProductPrice}
+                      onChange={(event) => setNewProductPrice(event.target.value)}
+                      className="h-11 rounded-md border border-stone-300 px-3 text-sm font-semibold"
+                      inputMode="decimal"
+                      placeholder="Price"
+                    />
+                    <input
+                      value={newProductStock}
+                      onChange={(event) => setNewProductStock(event.target.value)}
+                      className="h-11 rounded-md border border-stone-300 px-3 text-sm font-semibold"
+                      inputMode="numeric"
+                      placeholder="Stock"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => run('create-product', createProduct)}
+                    disabled={Boolean(busyAction)}
+                    className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 text-sm font-extrabold text-white hover:bg-emerald-800 disabled:opacity-50"
+                  >
+                    <Plus size={16} />
+                    Add Product
+                  </button>
+                  <p className="text-xs text-stone-500">
+                    New products are created under the selected category (demo default: Product D).
+                  </p>
+                </div>
+
+                <div className="mt-5 rounded-lg border border-rose-200 bg-rose-50/50 p-4">
+                  <h3 className="text-sm font-extrabold text-rose-950">Remove Product</h3>
+                  <p className="mt-1 text-xs text-rose-800">
+                    Choose the catalog item to delete here. This is separate from the Add Product
+                    form above.
+                  </p>
+                  <select
+                    value={productToRemoveId}
+                    onChange={(event) => setProductToRemoveId(event.target.value)}
+                    className="mt-3 h-11 w-full rounded-md border border-rose-200 bg-white px-3 text-sm font-semibold text-stone-900"
+                  >
+                    <option value="">Select product to remove</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name}
+                        {product.stockQuantity === 0 ? ' — out of stock' : ` — stock ${product.stockQuantity}`}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => run('delete-product', deleteSelectedProduct)}
+                    disabled={Boolean(busyAction) || !productToRemove}
+                    className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-rose-300 bg-white px-4 text-sm font-extrabold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                  >
+                    <Trash2 size={16} />
+                    Remove Selected Product
+                  </button>
+                </div>
+              </div>
+
+              {(lastDeletedCategory || lastDeletedProduct) && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-4 xl:col-span-2">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Undo2 className="h-5 w-5 text-amber-800" />
+                    <h3 className="text-sm font-extrabold text-amber-950">Recovery</h3>
+                  </div>
+                  <p className="mb-4 text-sm text-amber-900">
+                    Accidentally removed something? Bring the latest deleted category or product
+                    back into the catalog.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    {lastDeletedCategory ? (
+                      <button
+                        type="button"
+                        onClick={() => run('restore-category', restoreLastDeletedCategory)}
+                        disabled={Boolean(busyAction)}
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-amber-300 bg-white px-4 text-sm font-extrabold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        <Undo2 size={16} />
+                        Restore category &quot;{lastDeletedCategory.name}&quot;
+                      </button>
+                    ) : null}
+                    {lastDeletedProduct ? (
+                      <button
+                        type="button"
+                        onClick={() => run('restore-product', restoreLastDeletedProduct)}
+                        disabled={Boolean(busyAction)}
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-amber-300 bg-white px-4 text-sm font-extrabold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        <Undo2 size={16} />
+                        Restore product &quot;{lastDeletedProduct.name}&quot;
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
 
         <div className="mt-6 grid gap-6 xl:grid-cols-3">
           <section className="rounded-lg border border-stone-200 bg-white p-5">
