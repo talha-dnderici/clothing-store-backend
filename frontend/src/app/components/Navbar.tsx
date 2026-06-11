@@ -4,11 +4,12 @@ import {
   User,
   LogOut,
   Heart,
+  Bell,
   ChevronDown,
   Package,
   Settings,
 } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
@@ -25,13 +26,16 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
   const { user, logout } = useAuth();
   const { totalItems } = useCart();
-  const { wishlist } = useWishlist();
+  const { wishlist, notifications, unreadCount, markNotificationRead, refreshNotifications } = useWishlist();
+  const navigate = useNavigate();
   const wishlistCount = wishlist.length;
   const [cartOpen, setCartOpen] = useState(false);
   const [bump, setBump] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const notificationsRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -51,6 +55,26 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
       document.removeEventListener('keydown', escHandler);
     };
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    refreshNotifications();
+
+    const handler = (e: MouseEvent) => {
+      if (notificationsRef.current && !notificationsRef.current.contains(e.target as Node)) {
+        setNotificationsOpen(false);
+      }
+    };
+    const escHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNotificationsOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('keydown', escHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', escHandler);
+    };
+  }, [notificationsOpen, refreshNotifications]);
 
   const isAdmin = isAdminEmail(user?.email);
 
@@ -205,6 +229,98 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
                   </span>
                 )}
               </Link>
+
+              {user && (
+                <div className="relative" ref={notificationsRef}>
+                  <button
+                    type="button"
+                    onClick={() => setNotificationsOpen((open) => !open)}
+                    className="relative flex items-center text-gray-700 hover:text-gray-900 transition-colors"
+                    aria-label={
+                      unreadCount > 0
+                        ? `Notifications (${unreadCount} unread)`
+                        : 'Notifications'
+                    }
+                    aria-haspopup="menu"
+                    aria-expanded={notificationsOpen}
+                  >
+                    <Bell size={22} />
+                    {unreadCount > 0 && (
+                      <span className="absolute -right-1.5 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-black px-1 text-[10px] font-bold text-white shadow-md ring-2 ring-white">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                      </span>
+                    )}
+                  </button>
+
+                  {notificationsOpen && (
+                    <div
+                      role="menu"
+                      className="absolute right-0 mt-3 w-80 max-w-[calc(100vw-2rem)] origin-top-right rounded-2xl border border-gray-100 bg-white p-2 shadow-2xl shadow-black/10 ring-1 ring-black/5 animate-[fadeIn_0.15s_ease-out]"
+                    >
+                      <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
+                        <p className="text-sm font-bold text-gray-900">Notifications</p>
+                        {unreadCount > 0 && (
+                          <span className="rounded-full bg-gray-900 px-2 py-0.5 text-[10px] font-bold text-white">
+                            {unreadCount} unread
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="max-h-96 overflow-y-auto py-1">
+                        {notifications.length === 0 ? (
+                          <div className="px-3 py-8 text-center">
+                            <p className="text-sm font-semibold text-gray-900">No notifications</p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              Wishlist discount alerts will appear here.
+                            </p>
+                          </div>
+                        ) : (
+                          notifications.map((notification) => (
+                            <button
+                              key={notification.id}
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                markNotificationRead(notification.id);
+                                if (notification.productId) {
+                                  setNotificationsOpen(false);
+                                  navigate(`/product/${notification.productId}`);
+                                }
+                              }}
+                              className={`w-full rounded-xl px-3 py-3 text-left transition-colors ${
+                                notification.isRead ? 'hover:bg-gray-50' : 'bg-red-50 hover:bg-red-100'
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <span
+                                  className={`mt-1 h-2 w-2 rounded-full ${
+                                    notification.isRead ? 'bg-gray-200' : 'bg-red-500'
+                                  }`}
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-bold text-gray-900">
+                                    {notification.title}
+                                  </span>
+                                  {notification.message && (
+                                    <span className="mt-0.5 block text-xs leading-5 text-gray-600">
+                                      {notification.message}
+                                    </span>
+                                  )}
+                                  {notification.metadata?.discountedPrice !== undefined && (
+                                    <span className="mt-1 block text-xs font-semibold text-red-700">
+                                      Now ${notification.metadata.discountedPrice.toFixed(2)}
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <button
                 onClick={() => setCartOpen(true)}
