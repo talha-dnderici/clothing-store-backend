@@ -90,6 +90,18 @@ type CheckoutResult = {
   deliveryStatus: string;
 };
 
+type RefundRequest = {
+  id: string;
+  orderId: string;
+  productName: string;
+  quantity: number;
+  refundedAmount: number;
+  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  reason?: string;
+  customerId: string;
+  createdAt?: string;
+};
+
 type LogEntry = {
   id: number;
   tone: 'ok' | 'error' | 'info';
@@ -150,6 +162,7 @@ export default function Playground() {
     ratings: [],
   });
   const [managerOrders, setManagerOrders] = useState<Order[]>([]);
+  const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([]);
   const [customerOrders, setCustomerOrders] = useState<Order[]>([]);
   const [checkoutResult, setCheckoutResult] = useState<CheckoutResult | null>(null);
   const [priceInput, setPriceInput] = useState('');
@@ -268,6 +281,26 @@ export default function Playground() {
     }
 
     await Promise.all(tasks);
+  };
+
+  const refreshRefundRequests = async () => {
+    if (!salesManager?.token) return;
+    const response = await api.getManagerRefundRequests(salesManager.token);
+    setRefundRequests(response.data as RefundRequest[]);
+  };
+
+  const decideRefundRequest = async (
+    refund: RefundRequest,
+    status: 'approved' | 'rejected' | 'completed',
+  ) => {
+    if (!salesManager?.token) throw new Error('Sales manager login is required.');
+    await api.updateManagerRefundRequest(salesManager.token, refund.id, status);
+    addLog(`Refund ${refund.id.slice(-6)} marked as ${status}.`, 'ok');
+    await Promise.all([
+      refreshRefundRequests(),
+      refreshOrders().catch(() => undefined),
+      loadProducts().catch(() => undefined),
+    ]);
   };
 
   const loginAs = async (kind: 'customer' | 'salesManager' | 'productManager') => {
@@ -525,6 +558,19 @@ export default function Playground() {
   useEffect(() => {
     refreshOrders().catch(() => undefined);
   }, [customer?.token, productManager?.token]);
+
+  useEffect(() => {
+    if (!salesManager?.token) return;
+    refreshRefundRequests().catch((error) => {
+      addLog(
+        error instanceof Error
+          ? `Refund queue refresh failed: ${error.message}`
+          : 'Refund queue refresh failed.',
+        'error',
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salesManager?.token]);
 
   // Auto-load the global pending-comments queue as soon as the product manager
   // session is available. Without this the Approval section stays empty
@@ -1213,6 +1259,91 @@ export default function Playground() {
             ) : null}
           </section>
         </div>
+
+        <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-purple-700" />
+              <h2 className="text-xl font-extrabold text-stone-950">Refund Requests</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => run('refresh-refunds', refreshRefundRequests)}
+              disabled={Boolean(busyAction) || !salesManager?.token}
+              className="inline-flex items-center gap-2 rounded-md border border-stone-300 px-3 py-2 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+            >
+              <RefreshCw size={16} />
+              Refresh
+            </button>
+          </div>
+
+          {!salesManager?.token ? (
+            <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
+              Sign in as the sales manager to review refund requests.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {refundRequests.map((refund) => (
+                <div key={refund.id} className="rounded-lg border border-stone-200 p-3">
+                  <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="font-bold text-stone-900">
+                        {refund.quantity} x {refund.productName}
+                      </div>
+                      <div className="text-sm text-stone-500">
+                        Order {refund.orderId.slice(-8)} - refund {money(refund.refundedAmount)}
+                      </div>
+                      {refund.reason ? (
+                        <div className="mt-1 text-sm italic text-stone-500">"{refund.reason}"</div>
+                      ) : null}
+                    </div>
+                    <span
+                      className={`rounded-md border px-2 py-1 text-xs font-bold ${statusClass(refund.status)}`}
+                      data-testid={`refund-status-${refund.id}`}
+                    >
+                      {refund.status}
+                    </span>
+                  </div>
+                  {refund.status === 'pending' ? (
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => run('refund-approve', () => decideRefundRequest(refund, 'approved'))}
+                        disabled={Boolean(busyAction)}
+                        className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => run('refund-reject', () => decideRefundRequest(refund, 'rejected'))}
+                        disabled={Boolean(busyAction)}
+                        className="rounded-md bg-rose-700 px-3 py-2 text-sm font-bold text-white hover:bg-rose-800 disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  ) : null}
+                  {refund.status === 'approved' ? (
+                    <button
+                      type="button"
+                      onClick={() => run('refund-complete', () => decideRefundRequest(refund, 'completed'))}
+                      disabled={Boolean(busyAction)}
+                      className="rounded-md bg-indigo-700 px-3 py-2 text-sm font-bold text-white hover:bg-indigo-800 disabled:opacity-50"
+                    >
+                      Product received - complete refund
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+              {!refundRequests.length ? (
+                <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
+                  No refund requests yet.
+                </div>
+              ) : null}
+            </div>
+          )}
+        </section>
 
         <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5">
           <div className="mb-4 flex items-center gap-2">

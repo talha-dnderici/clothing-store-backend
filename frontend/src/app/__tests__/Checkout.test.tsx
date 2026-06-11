@@ -14,11 +14,13 @@ import { api } from '../utils/api';
 vi.mock('../utils/api', () => ({
   api: {
     checkout: vi.fn(),
+    clearCart: vi.fn().mockResolvedValue({ data: {} }),
+    addItemToCart: vi.fn().mockResolvedValue({ data: {} }),
   }
 }));
 
 vi.stubGlobal('localStorage', {
-  getItem: vi.fn(),
+  getItem: vi.fn((key: string) => (key === 'token' ? 'test-token' : null)),
   setItem: vi.fn(),
   removeItem: vi.fn(),
   clear: vi.fn(),
@@ -28,7 +30,7 @@ const Seed = () => {
   const { addToCart } = useCart();
   const { login } = useAuth();
   React.useEffect(() => {
-    login('jane@aura.test', 'Jane');
+    login({ id: 'user-1', name: 'Jane', email: 'jane@aura.test' }, 'test-token');
     addToCart({ id: 'a', name: 'Jacket', price: 100, imageUrl: '', stockQuantity: 3 }, 1);
   }, []);
   return null;

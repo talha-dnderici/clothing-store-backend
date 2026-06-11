@@ -180,3 +180,89 @@ describe('CardService refund workflow', () => {
     expect(orderSave).toHaveBeenCalled();
   });
 });
+
+describe('CardService order cancellation', () => {
+  let service: CardService;
+  let productModel: any;
+  let orderModel: any;
+  let deliveryModel: any;
+
+  const buildOrder = (overrides: Record<string, unknown> = {}) => ({
+    _id: { toString: () => 'order1' },
+    customerId: 'customer1',
+    status: 'processing',
+    items: [
+      { productId: 'product1', quantity: 2 },
+      { productId: 'product2', quantity: 1 },
+    ],
+    save: jest.fn().mockResolvedValue(undefined),
+    toObject: () => ({
+      _id: { toString: () => 'order1' },
+      customerId: 'customer1',
+      status: 'cancelled',
+    }),
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    productModel = { updateOne: jest.fn().mockReturnValue(asExec({})) };
+    orderModel = { findById: jest.fn() };
+    deliveryModel = { updateMany: jest.fn().mockReturnValue(asExec({})) };
+
+    service = new CardService(
+      {} as any,
+      productModel,
+      orderModel,
+      deliveryModel,
+      {} as any,
+      {} as any,
+    );
+  });
+
+  it('cancels a processing order and restores the stock', async () => {
+    const order = buildOrder();
+    orderModel.findById.mockReturnValue(asExec(order));
+
+    const result = await service.cancelOrder({
+      orderId: 'order1',
+      customerId: 'customer1',
+    });
+
+    expect(order.status).toBe('cancelled');
+    expect(order.save).toHaveBeenCalled();
+    expect(productModel.updateOne).toHaveBeenCalledWith(
+      { _id: 'product1' },
+      { $inc: { stock: 2 } },
+    );
+    expect(productModel.updateOne).toHaveBeenCalledWith(
+      { _id: 'product2' },
+      { $inc: { stock: 1 } },
+    );
+    expect(deliveryModel.updateMany).toHaveBeenCalledWith(
+      { orderId: 'order1' },
+      { status: 'cancelled', completed: true },
+    );
+    expect((result as any).status).toBe('cancelled');
+  });
+
+  it('rejects cancelling an order that has already shipped', async () => {
+    const order = buildOrder({ status: 'in-transit' });
+    orderModel.findById.mockReturnValue(asExec(order));
+
+    await expect(
+      service.cancelOrder({ orderId: 'order1', customerId: 'customer1' }),
+    ).rejects.toThrow('Only orders that have not been shipped yet can be cancelled');
+    expect(order.save).not.toHaveBeenCalled();
+    expect(productModel.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('rejects cancelling an order that belongs to another customer', async () => {
+    const order = buildOrder();
+    orderModel.findById.mockReturnValue(asExec(order));
+
+    await expect(
+      service.cancelOrder({ orderId: 'order1', customerId: 'intruder' }),
+    ).rejects.toThrow('You can only cancel your own orders');
+    expect(order.save).not.toHaveBeenCalled();
+  });
+});
