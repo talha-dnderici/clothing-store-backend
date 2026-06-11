@@ -151,6 +151,13 @@ export const api = {
       token,
     );
   },
+  updateProductStock(token: string, productId: string, body: { stock?: number; adjustment?: number }) {
+    return request(
+      `/manager/products/${productId}/stock`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+      token,
+    );
+  },
   getWishlist(token: string) {
     return request('/wishlist', undefined, token);
   },

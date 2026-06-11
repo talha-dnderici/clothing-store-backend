@@ -107,7 +107,7 @@ const salesManagerCredentials = {
 };
 
 const productManagerCredentials = {
-  email: 'product.manager@aura.test',
+  email: 'manager@aura.test',
   password: 'password123',
 };
 
@@ -155,6 +155,7 @@ export default function Playground() {
   const [priceInput, setPriceInput] = useState('');
   const [discountInput, setDiscountInput] = useState('0');
   const [discountActive, setDiscountActive] = useState(false);
+  const [stockInput, setStockInput] = useState('');
   const [busyAction, setBusyAction] = useState('');
   const [bulkApproveMode, setBulkApproveMode] = useState(false);
   const [selectedPendingIds, setSelectedPendingIds] = useState<Set<string>>(new Set());
@@ -204,11 +205,14 @@ export default function Playground() {
       await api.login(customerCredentials);
     });
 
-    await Promise.all([
-      api.login(salesManagerCredentials),
-      api.login(productManagerCredentials),
-    ]).catch(() => {
-      throw new Error('Manager seed users are missing. Run the seed script first.');
+    await api.login(salesManagerCredentials).catch(() => {
+      throw new Error('Sales manager seed user is missing. Run the seed script first.');
+    });
+
+    await api.login(productManagerCredentials).catch(() => {
+      throw new Error(
+        'Product manager account is missing. Run `npm run seed:db` to create manager@aura.test.',
+      );
     });
 
     addLog('Accounts verified.', 'ok');
@@ -470,6 +474,31 @@ export default function Playground() {
     await loadProducts();
   };
 
+  const updateStock = async () => {
+    if (!productManager || !selectedProduct) {
+      throw new Error('Product manager login and product are required.');
+    }
+
+    const stock = Number(stockInput.trim());
+    if (Number.isNaN(stock) || stock < 0) {
+      throw new Error('Stock must be zero or greater.');
+    }
+
+    const response = await api.updateProductStock(
+      productManager.token,
+      selectedProduct.id,
+      { stock },
+    );
+    const updatedStock = (response.data as { stock?: number })?.stock;
+    addLog(
+      updatedStock !== undefined
+        ? `Stock updated to ${updatedStock} for ${selectedProduct.name}.`
+        : `Stock updated for ${selectedProduct.name}.`,
+      'ok',
+    );
+    await loadProducts();
+  };
+
   useEffect(() => {
     run('load-products', async () => {
       await loadProducts();
@@ -490,6 +519,7 @@ export default function Playground() {
     setPriceInput(String(selectedProduct.price));
     setDiscountInput(String(selectedProduct.discountRate));
     setDiscountActive(selectedProduct.discountActive);
+    setStockInput(String(selectedProduct.stockQuantity ?? 0));
   }, [selectedProduct]);
 
   useEffect(() => {
@@ -541,7 +571,7 @@ export default function Playground() {
               </div>
               <div className="rounded-lg border border-stone-200 bg-[#eef6ff] p-4">
                 <div className="font-bold text-stone-900">Product Manager</div>
-                <div className="mt-1 text-stone-600">product.manager@aura.test</div>
+                <div className="mt-1 text-stone-600">manager@aura.test</div>
               </div>
               <a
                 href="http://localhost:8025"
@@ -719,6 +749,45 @@ export default function Playground() {
                   {ratingSummary.ratingAverage || selectedProduct?.rating || 0}
                 </div>
               </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-indigo-200 bg-[#f7f8ff] p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <PackageCheck className="h-5 w-5 text-indigo-700" />
+                <h3 className="text-sm font-extrabold text-stone-950">Stock Management</h3>
+              </div>
+
+              {!productManager ? (
+                <p className="text-sm text-stone-600">
+                  Login as product manager (`manager@aura.test`) to update stock levels.
+                </p>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-stone-500">
+                      Set stock
+                    </span>
+                    <input
+                      value={stockInput}
+                      onChange={(event) => setStockInput(event.target.value)}
+                      className="h-11 w-full rounded-md border border-stone-300 px-3 text-sm font-semibold"
+                      inputMode="numeric"
+                      min="0"
+                      placeholder="e.g. 0 or 1"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => run('update-stock', updateStock)}
+                    disabled={Boolean(busyAction)}
+                    className="mt-auto inline-flex h-11 items-center justify-center gap-2 rounded-md bg-indigo-700 px-4 text-sm font-extrabold text-white hover:bg-indigo-800 disabled:opacity-50"
+                  >
+                    <PackageCheck size={16} />
+                    Update Stock
+                  </button>
+                </div>
+              )}
             </div>
           </section>
         </div>
