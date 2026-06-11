@@ -1671,12 +1671,11 @@ export default function Playground() {
           </section>
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-          <section className="rounded-lg border border-stone-200 bg-white p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <PackageCheck className="h-5 w-5 text-emerald-700" />
-              <h2 className="text-xl font-extrabold text-stone-950">Checkout</h2>
-            </div>
+        <section className="mt-6 max-w-xl rounded-lg border border-stone-200 bg-white p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <PackageCheck className="h-5 w-5 text-emerald-700" />
+            <h2 className="text-xl font-extrabold text-stone-950">Checkout</h2>
+          </div>
 
             <button
               type="button"
@@ -1742,126 +1741,7 @@ export default function Playground() {
                 No checkout yet.
               </div>
             )}
-          </section>
-
-          <section className="rounded-lg border border-stone-200 bg-white p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <PackageCheck className="h-5 w-5 text-indigo-700" />
-                <h2 className="text-xl font-extrabold text-stone-950">Orders</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => run('refresh-orders', refreshOrders)}
-                disabled={Boolean(busyAction) || bulkAdvanceMode}
-                className="inline-flex items-center gap-2 rounded-md border border-stone-300 px-3 py-2 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
-              >
-                <RefreshCw size={16} />
-                Refresh
-              </button>
-            </div>
-
-            {bulkAdvanceMode ? (
-              <div className="mb-4 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => run('bulk-advance', confirmBulkAdvance)}
-                  disabled={Boolean(busyAction) || !selectedOrderIds.size}
-                  className="inline-flex items-center justify-center gap-2 rounded-md bg-indigo-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-800 disabled:opacity-50"
-                >
-                  <CheckSquare size={16} />
-                  Advance Selected ({selectedOrderIds.size})
-                </button>
-                <button
-                  type="button"
-                  onClick={exitBulkAdvance}
-                  disabled={Boolean(busyAction)}
-                  className="inline-flex items-center justify-center gap-2 rounded-md border border-stone-300 px-4 py-2.5 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
-                >
-                  <X size={16} />
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={enterBulkAdvance}
-                disabled={
-                  Boolean(busyAction) ||
-                  !managerOrders.some((order) => nextOrderStatus(order.status))
-                }
-                className="mb-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-stone-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-stone-800 disabled:opacity-50"
-              >
-                <ListChecks size={16} />
-                Advance All
-              </button>
-            )}
-
-            <div className="space-y-3">
-              {managerOrders.map((order) => {
-                const nextStatus = nextOrderStatus(order.status);
-                const isSelected = selectedOrderIds.has(order.id);
-                return (
-                  <div
-                    key={order.id}
-                    className={`rounded-lg border p-3 ${
-                      bulkAdvanceMode && isSelected
-                        ? 'border-indigo-300 bg-indigo-50'
-                        : 'border-stone-200'
-                    }`}
-                  >
-                    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                      <div className="flex items-start gap-3">
-                        {bulkAdvanceMode ? (
-                          <button
-                            type="button"
-                            onClick={() => toggleOrderSelection(order.id)}
-                            disabled={!nextStatus}
-                            className="mt-0.5 text-stone-700 hover:text-stone-950 disabled:opacity-30"
-                            aria-label={isSelected ? 'Deselect' : 'Select'}
-                          >
-                            {isSelected ? <CheckSquare size={20} className="text-indigo-700" /> : <Square size={20} />}
-                          </button>
-                        ) : null}
-                        <div>
-                          <div className="font-bold text-stone-900">{order.customerEmail}</div>
-                          <div className="text-sm text-stone-500">{money(order.totalPrice)}</div>
-                        </div>
-                      </div>
-                      <span className={`rounded-md border px-2 py-1 text-xs font-bold ${statusClass(order.status)}`}>
-                        {order.status}
-                      </span>
-                    </div>
-                    <div className="mb-3 text-sm text-stone-600">
-                      {order.items.map((item) => `${item.quantity} x ${item.productName}`).join(', ')}
-                    </div>
-                    {!bulkAdvanceMode ? (
-                      <button
-                        type="button"
-                        onClick={() => run('update-order', () => updateOrderStatus(order))}
-                        disabled={!nextStatus}
-                        className="rounded-md bg-indigo-700 px-3 py-2 text-sm font-bold text-white hover:bg-indigo-800 disabled:bg-stone-200 disabled:text-stone-500"
-                      >
-                        {nextStatus ? `Move to ${nextStatus}` : 'Delivered'}
-                      </button>
-                    ) : null}
-                  </div>
-                );
-              })}
-              {!managerOrders.length ? (
-                <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
-                  No manager orders loaded.
-                </div>
-              ) : null}
-            </div>
-
-            {customerOrders.length ? (
-              <div className="mt-4 rounded-lg border border-stone-200 bg-[#f4f7ff] p-3 text-sm text-stone-700">
-                Customer orders: {customerOrders.length}
-              </div>
-            ) : null}
-          </section>
-        </div>
+        </section>
 
         <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
