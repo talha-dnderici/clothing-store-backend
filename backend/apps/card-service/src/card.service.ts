@@ -27,6 +27,7 @@ import {
   RefundRequestStatus,
 } from '@app/common/database/schemas/refund-request.schema';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
+import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { CreateRefundRequestDto } from './dto/create-refund-request.dto';
@@ -965,7 +966,9 @@ export class CardService {
   }
 
   private getOrderStatusFromDeliveries(
-    deliveries: Array<{ status: 'processing' | 'in-transit' | 'delivered' }>,
+    deliveries: Array<{
+      status: 'processing' | 'in-transit' | 'delivered' | 'cancelled';
+    }>,
   ) {
     if (!deliveries.length) {
       return 'processing';
@@ -2022,6 +2025,53 @@ export class CardService {
       };
     } catch (error) {
       this.handleServiceError(error, 'Profit/loss report could not be calculated');
+    }
+  }
+
+
+  async cancelOrder(payload: CancelOrderDto) {
+    try {
+      const orderId = payload.orderId?.trim();
+      const customerId = payload.customerId?.trim();
+
+      if (!orderId || !customerId) {
+        throw new BadRequestException('orderId and customerId are required');
+      }
+
+      const order = await this.orderModel.findById(orderId).exec();
+
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+
+      if (order.customerId !== customerId) {
+        throw new ForbiddenException('You can only cancel your own orders');
+      }
+
+      if (order.status !== 'processing') {
+        throw new BadRequestException(
+          'Only orders that have not been shipped yet can be cancelled',
+        );
+      }
+
+      order.status = 'cancelled';
+      await order.save();
+
+      await Promise.all(
+        order.items.map((item) =>
+          this.productModel
+            .updateOne({ _id: item.productId }, { $inc: { stock: item.quantity } })
+            .exec(),
+        ),
+      );
+
+      await this.deliveryModel
+        .updateMany({ orderId }, { status: 'cancelled', completed: true })
+        .exec();
+
+      return this.sanitizeOrder(order);
+    } catch (error) {
+      this.handleServiceError(error, 'Order could not be cancelled');
     }
   }
 
