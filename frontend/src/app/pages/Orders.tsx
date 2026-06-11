@@ -206,7 +206,7 @@ export default function Orders() {
     if (!window.confirm('Cancel this order? Stock will be returned automatically.')) return;
     setBusyId(orderId);
     try {
-      await api.updateOrderStatus(token, orderId, 'cancelled');
+      await api.cancelOrder(token, orderId);
       showToast({ title: 'Order cancelled', variant: 'success' });
       await loadOrders();
     } catch (err: any) {
@@ -220,8 +220,22 @@ export default function Orders() {
     }
   };
 
-  const handleReturn = async (orderId: string) => {
+  const handleReturn = async (order: Order) => {
     if (!token) return;
+    const orderId = getOrderId(order);
+    const refundableItems = (order.items ?? []).filter(
+      (item) => item.productId && item.quantity > 0,
+    );
+
+    if (!refundableItems.length) {
+      showToast({
+        title: 'Could not submit refund request',
+        description: 'No refundable items were found on this order.',
+        variant: 'error',
+      });
+      return;
+    }
+
     if (
       !window.confirm(
         'Request a return / refund for this order? The sales team will review your request.',
@@ -230,7 +244,12 @@ export default function Orders() {
       return;
     setBusyId(orderId);
     try {
-      await api.updateOrderStatus(token, orderId, 'refund_requested');
+      for (const item of refundableItems) {
+        await api.createRefundRequest(token, orderId, {
+          productId: item.productId!,
+          quantity: item.quantity,
+        });
+      }
       showToast({
         title: 'Refund requested',
         description: 'The sales team will be in touch shortly.',
@@ -467,7 +486,7 @@ export default function Orders() {
                     {isReturnable && (
                       <button
                         type="button"
-                        onClick={() => handleReturn(id)}
+                        onClick={() => handleReturn(order)}
                         disabled={busy}
                         className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 border border-purple-200 px-4 py-1.5 text-xs font-bold text-purple-700 hover:bg-purple-100 disabled:opacity-50 transition"
                         data-testid="return-order"

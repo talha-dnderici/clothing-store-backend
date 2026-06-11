@@ -9,16 +9,32 @@ export const BASE_URL =
     ? `${window.location.protocol}//${window.location.hostname}:3000`
     : 'http://localhost:3000');
 
+function getStoredToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    return window.localStorage.getItem('token');
+  } catch {
+    return null;
+  }
+}
+
 async function request<T = any>(
   path: string,
   options?: RequestInit,
   token?: string,
 ): Promise<{ data: T }> {
+  // Authenticated endpoints (cart, orders, wishlist, ...) require the JWT.
+  // Fall back to the session token so call sites cannot accidentally send
+  // unauthenticated requests after the gateway auth hardening.
+  const authToken = token ?? getStoredToken() ?? undefined;
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...(options?.headers ?? {}),
     },
   });
@@ -74,6 +90,20 @@ export const api = {
   getMyOrders(token: string) {
     return request('/orders', undefined, token);
   },
+  cancelOrder(token: string, orderId: string) {
+    return request(`/orders/${orderId}/cancel`, { method: 'POST' }, token);
+  },
+  createRefundRequest(
+    token: string,
+    orderId: string,
+    body: { productId: string; quantity: number; reason?: string },
+  ) {
+    return request(
+      `/orders/${orderId}/refunds`,
+      { method: 'POST', body: JSON.stringify(body) },
+      token,
+    );
+  },
   updateOrderStatus(token: string, orderId: string, status: string) {
     return request(
       `/orders/${orderId}/status`,
@@ -83,6 +113,25 @@ export const api = {
   },
   getManagerOrders(token: string) {
     return request('/manager/orders', undefined, token);
+  },
+  getMyRefundRequests(token: string) {
+    return request('/refund-requests/my', undefined, token);
+  },
+  getManagerRefundRequests(token: string, status?: string) {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+    return request(`/manager/refund-requests${qs}`, undefined, token);
+  },
+  updateManagerRefundRequest(
+    token: string,
+    refundId: string,
+    status: 'approved' | 'rejected' | 'completed',
+    decisionNote?: string,
+  ) {
+    return request(
+      `/manager/refund-requests/${refundId}`,
+      { method: 'PATCH', body: JSON.stringify({ status, decisionNote }) },
+      token,
+    );
   },
   updateManagerOrderStatus(token: string, orderId: string, status: string) {
     return request(

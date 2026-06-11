@@ -1,6 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
+import { CancelOrderDto } from './dto/cancel-order.dto';
 import { CartUserDto } from './dto/cart-user.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { CreateCardDto } from './dto/create-card.dto';
@@ -78,6 +79,11 @@ export class CardController {
   @MessagePattern('card.updateRefundRequestStatus')
   updateRefundRequestStatus(@Payload() payload: UpdateRefundRequestStatusDto) {
     return this.cardService.updateRefundRequestStatus(payload);
+  }
+
+  @MessagePattern('card.cancelOrder')
+  cancelOrder(@Payload() payload: CancelOrderDto) {
+    return this.cardService.cancelOrder(payload);
   }
 
   @MessagePattern('card.findAllOrders')

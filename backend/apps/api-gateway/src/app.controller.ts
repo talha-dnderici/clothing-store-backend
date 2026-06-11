@@ -1262,6 +1262,21 @@ export class AppController {
     });
   }
 
+  @Post('orders/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancelMyOrder(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+
+    return this.sendMessage(this.cardClient, 'card.cancelOrder', {
+      orderId: id,
+      customerId: authUser.sub,
+    });
+  }
+
   @Get('orders/:id')
   async findOneOrder(
     @Headers('authorization') authorization: string | undefined,
