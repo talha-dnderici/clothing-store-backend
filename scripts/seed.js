@@ -244,6 +244,14 @@ const userSeeds = [
     taxId: 'TR-PRODUCT-001',
     role: 'productManager',
   },
+  {
+    name: 'AURA Manager',
+    email: 'manager@aura.test',
+    password: 'password123',
+    address: 'AURA Operations Office',
+    taxId: 'TR-MANAGER-001',
+    role: 'productManager',
+  },
 ];
 
 async function seed() {
