@@ -153,6 +153,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
                         <p className="text-sm font-semibold text-gray-900 truncate">{user.email}</p>
                       </div>
                       <Link
+                        to="/profile"
+                        role="menuitem"
+                        onClick={() => setMenuOpen(false)}
+                        className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+                      >
+                        <User size={16} className="text-gray-500" />
+                        My Profile
+                      </Link>
+                      <Link
                         to="/orders"
                         role="menuitem"
                         onClick={() => setMenuOpen(false)}

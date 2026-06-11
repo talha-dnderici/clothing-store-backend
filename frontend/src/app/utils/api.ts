@@ -82,6 +82,9 @@ export const api = {
   register(body: Record<string, string>) {
     return request('/auth/register', { method: 'POST', body: JSON.stringify(body) });
   },
+  getUser(token: string, userId: string) {
+    return request(`/users/${userId}`, undefined, token);
+  },
   createUser(body: Record<string, unknown>, token?: string) {
     return request('/users', { method: 'POST', body: JSON.stringify(body) }, token);
   },

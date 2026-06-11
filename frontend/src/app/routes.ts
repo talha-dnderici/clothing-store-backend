@@ -9,6 +9,7 @@ import Checkout from "./pages/Checkout";
 import Invoice from "./pages/Invoice";
 import Wishlist from "./pages/Wishlist";
 import Orders from "./pages/Orders";
+import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 
 export const router = createBrowserRouter([
@@ -24,6 +25,7 @@ export const router = createBrowserRouter([
       { path: "invoice", Component: Invoice },
       { path: "wishlist", Component: Wishlist },
       { path: "orders", Component: Orders },
+      { path: "profile", Component: Profile },
       // Catch-all 404 — must be the last child route under Root so it only
       // matches when nothing else does (keeps Navbar/Footer chrome visible).
       { path: "*", Component: NotFound },
