@@ -37,6 +37,7 @@ import {
 } from '../utils/catalogEvents';
 import { mapProducts } from '../utils/mapProduct';
 import { CatalogProduct } from '../types/catalog';
+import { nextDeliveryStatus } from '../utils/deliveryStatus';
 
 type LoginUser = {
   id: string;
@@ -176,12 +177,6 @@ function statusClass(status: string) {
 }
 
 function nextOrderStatus(status: Order['status']) {
-  if (status === 'processing') return 'in-transit';
-  if (status === 'in-transit') return 'delivered';
-  return null;
-}
-
-function nextDeliveryStatus(status: Delivery['status']) {
   if (status === 'processing') return 'in-transit';
   if (status === 'in-transit') return 'delivered';
   return null;

@@ -266,3 +266,105 @@ describe('CardService order cancellation', () => {
     expect(order.save).not.toHaveBeenCalled();
   });
 });
+
+describe('CardService delivery workflow', () => {
+  let service: CardService;
+  let orderModel: any;
+  let deliveryModel: any;
+
+  beforeEach(() => {
+    orderModel = {
+      findByIdAndUpdate: jest.fn().mockReturnValue(asExec({})),
+    };
+    deliveryModel = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+    };
+
+    service = new CardService(
+      {} as any,
+      {} as any,
+      orderModel,
+      deliveryModel,
+      {} as any,
+      {} as any,
+    );
+  });
+
+  it('lists deliveries with sanitized fields for the manager panel', async () => {
+    const deliveryDoc = {
+      toObject: () => ({
+        _id: 'mongo1',
+        deliveryId: 'order1-1',
+        orderId: 'order1',
+        customerId: 'customer1',
+        productId: 'product1',
+        productName: 'Distressed Jeans',
+        quantity: 2,
+        totalPrice: 169.98,
+        deliveryAddress: 'Istanbul Test Street 42',
+        status: 'processing',
+      }),
+    };
+
+    deliveryModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([deliveryDoc]),
+    });
+
+    const result = await service.findDeliveries();
+
+    expect(deliveryModel.find).toHaveBeenCalled();
+    expect(result).toEqual([
+      expect.objectContaining({
+        deliveryId: 'order1-1',
+        customerId: 'customer1',
+        productId: 'product1',
+        quantity: 2,
+        totalPrice: 169.98,
+        deliveryAddress: 'Istanbul Test Street 42',
+        status: 'processing',
+      }),
+    ]);
+  });
+
+  it('updates a delivery status and syncs the parent order status', async () => {
+    const delivery = {
+      deliveryId: 'order1-1',
+      orderId: 'order1',
+      status: 'processing',
+      completed: false,
+      save: jest.fn().mockResolvedValue(undefined),
+      toObject: () => ({
+        _id: 'mongo1',
+        deliveryId: 'order1-1',
+        orderId: 'order1',
+        customerId: 'customer1',
+        productId: 'product1',
+        productName: 'Distressed Jeans',
+        quantity: 2,
+        totalPrice: 169.98,
+        deliveryAddress: 'Istanbul Test Street 42',
+        status: 'in-transit',
+        completed: false,
+      }),
+    };
+
+    deliveryModel.findOne.mockReturnValue(asExec(delivery));
+    deliveryModel.find.mockReturnValue(
+      asSelectLeanExec([{ status: 'in-transit' }, { status: 'processing' }]),
+    );
+
+    const result = await service.updateDeliveryStatus({
+      deliveryId: 'order1-1',
+      status: 'in-transit',
+    });
+
+    expect(delivery.status).toBe('in-transit');
+    expect(delivery.save).toHaveBeenCalled();
+    expect(orderModel.findByIdAndUpdate).toHaveBeenCalledWith('order1', {
+      status: 'in-transit',
+    });
+    expect((result as any).status).toBe('in-transit');
+  });
+});
