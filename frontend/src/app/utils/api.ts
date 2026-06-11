@@ -155,6 +155,16 @@ export const api = {
       token,
     );
   },
+  getDeliveries(token: string) {
+    return request('/deliveries', undefined, token);
+  },
+  updateDeliveryStatus(token: string, deliveryId: string, status: string) {
+    return request(
+      `/deliveries/${deliveryId}/status`,
+      { method: 'PATCH', body: JSON.stringify({ status }) },
+      token,
+    );
+  },
   emailInvoice(token: string, orderId: string) {
     return request(
       `/orders/${orderId}/invoice/email`,

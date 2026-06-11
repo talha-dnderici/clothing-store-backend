@@ -13,6 +13,7 @@ import {
   PackageCheck,
   Plus,
   RefreshCw,
+  Truck,
   Send,
   ShieldCheck,
   Square,
@@ -85,6 +86,20 @@ type Order = {
   status: 'processing' | 'in-transit' | 'delivered' | 'cancelled' | 'refunded';
   totalPrice: number;
   items: OrderItem[];
+  createdAt?: string;
+};
+
+type Delivery = {
+  id: string;
+  deliveryId: string;
+  orderId: string;
+  customerId: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  totalPrice: number;
+  deliveryAddress: string;
+  status: 'processing' | 'in-transit' | 'delivered' | 'cancelled';
   createdAt?: string;
 };
 
@@ -166,6 +181,12 @@ function nextOrderStatus(status: Order['status']) {
   return null;
 }
 
+function nextDeliveryStatus(status: Delivery['status']) {
+  if (status === 'processing') return 'in-transit';
+  if (status === 'in-transit') return 'delivered';
+  return null;
+}
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -191,6 +212,7 @@ export default function Playground() {
     ratings: [],
   });
   const [managerOrders, setManagerOrders] = useState<Order[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([]);
   const [customerOrders, setCustomerOrders] = useState<Order[]>([]);
   const [checkoutResult, setCheckoutResult] = useState<CheckoutResult | null>(null);
@@ -382,6 +404,13 @@ export default function Playground() {
           setManagerOrders(response.data as Order[]);
         }),
       );
+      tasks.push(
+        api.getDeliveries(productManager.token).then((response) => {
+          setDeliveries(response.data as Delivery[]);
+        }),
+      );
+    } else {
+      setDeliveries([]);
     }
 
     await Promise.all(tasks);
@@ -516,6 +545,16 @@ export default function Playground() {
 
     await api.updateManagerOrderStatus(productManager.token, order.id, nextStatus);
     addLog(`Order moved to ${nextStatus}.`, 'ok');
+    await refreshOrders();
+  };
+
+  const updateDeliveryStatus = async (delivery: Delivery) => {
+    if (!productManager) throw new Error('Product manager login is required.');
+    const nextStatus = nextDeliveryStatus(delivery.status);
+    if (!nextStatus) throw new Error('Delivery is already completed.');
+
+    await api.updateDeliveryStatus(productManager.token, delivery.deliveryId, nextStatus);
+    addLog(`Delivery ${delivery.deliveryId} moved to ${nextStatus}.`, 'ok');
     await refreshOrders();
   };
 
@@ -1828,6 +1867,99 @@ export default function Playground() {
             ) : null}
           </section>
         </div>
+
+        <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Truck className="h-5 w-5 text-sky-700" />
+              <div>
+                <h2 className="text-xl font-extrabold text-stone-950">Deliveries</h2>
+                <p className="text-sm text-stone-500">
+                  Delivery list with ID, customer, product, quantity, price, address, and status.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => run('refresh-deliveries', refreshOrders)}
+              disabled={Boolean(busyAction) || !productManager?.token}
+              className="inline-flex items-center gap-2 rounded-md border border-stone-300 px-3 py-2 text-sm font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+            >
+              <RefreshCw size={16} />
+              Refresh
+            </button>
+          </div>
+
+          {!productManager?.token ? (
+            <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
+              Sign in as the product manager to load the delivery list.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {deliveries.map((delivery) => {
+                const nextStatus = nextDeliveryStatus(delivery.status);
+                return (
+                  <div key={delivery.deliveryId} className="rounded-lg border border-stone-200 p-4">
+                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="font-bold text-stone-900">{delivery.productName}</div>
+                        <div className="text-sm text-stone-500">
+                          {delivery.quantity} item{delivery.quantity === 1 ? '' : 's'} · {money(delivery.totalPrice)}
+                        </div>
+                      </div>
+                      <span
+                        className={`rounded-md border px-2 py-1 text-xs font-bold ${statusClass(delivery.status)}`}
+                      >
+                        {delivery.status}
+                      </span>
+                    </div>
+
+                    <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                      <div>
+                        <dt className="font-bold text-stone-700">Delivery ID</dt>
+                        <dd className="break-all font-mono text-xs text-stone-600">{delivery.deliveryId}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-bold text-stone-700">Customer ID</dt>
+                        <dd className="break-all font-mono text-xs text-stone-600">{delivery.customerId}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-bold text-stone-700">Product ID</dt>
+                        <dd className="break-all font-mono text-xs text-stone-600">{delivery.productId}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-bold text-stone-700">Quantity</dt>
+                        <dd className="text-stone-600">{delivery.quantity}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-bold text-stone-700">Total Price</dt>
+                        <dd className="text-stone-600">{money(delivery.totalPrice)}</dd>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <dt className="font-bold text-stone-700">Delivery Address</dt>
+                        <dd className="text-stone-600">{delivery.deliveryAddress}</dd>
+                      </div>
+                    </dl>
+
+                    <button
+                      type="button"
+                      onClick={() => run('update-delivery', () => updateDeliveryStatus(delivery))}
+                      disabled={!nextStatus}
+                      className="mt-3 rounded-md bg-sky-700 px-3 py-2 text-sm font-bold text-white hover:bg-sky-800 disabled:bg-stone-200 disabled:text-stone-500"
+                    >
+                      {nextStatus ? `Move to ${nextStatus}` : 'Delivered'}
+                    </button>
+                  </div>
+                );
+              })}
+              {!deliveries.length ? (
+                <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
+                  No deliveries loaded yet. Complete a customer checkout first, then refresh.
+                </div>
+              ) : null}
+            </div>
+          )}
+        </section>
 
         <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
