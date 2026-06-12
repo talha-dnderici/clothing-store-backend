@@ -85,6 +85,9 @@ export const api = {
   getUser(token: string, userId: string) {
     return request(`/users/${userId}`, undefined, token);
   },
+  updateUser(token: string, userId: string, body: Record<string, string>) {
+    return request(`/users/${userId}`, { method: 'PATCH', body: JSON.stringify(body) }, token);
+  },
   createUser(body: Record<string, unknown>, token?: string) {
     return request('/users', { method: 'POST', body: JSON.stringify(body) }, token);
   },
