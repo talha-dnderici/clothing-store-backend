@@ -173,4 +173,167 @@ describe('MainService BE-12 Unit Tests', () => {
       );
     });
   });
+
+  describe('createComment', () => {
+    it('9. should throw BadRequestException when comment content is empty', async () => {
+      await expect(
+        mainService.createComment({
+          productId: 'prod1',
+          customerId: 'customer1',
+          customerName: 'Test User',
+          content: '   ',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('createRating', () => {
+    it('10. should immediately approve a rating with no comment text', async () => {
+      const mockComment = {
+        _id: { toString: () => 'rating1' },
+        productId: 'prod1',
+        customerId: 'customer1',
+        customerName: 'Test User',
+        content: '',
+        rating: 4,
+        approvalStatus: 'approved',
+        toObject: () => ({
+          _id: { toString: () => 'rating1' },
+          productId: 'prod1',
+          customerId: 'customer1',
+          customerName: 'Test User',
+          content: '',
+          rating: 4,
+          approvalStatus: 'approved',
+          createdAt: new Date(),
+        }),
+      };
+      // ensureProductExists: findById().select().lean().exec()
+      mockProductModel.findById = jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue({ _id: 'prod1' }),
+      });
+      mockCommentModel.create = jest.fn().mockResolvedValue(mockComment);
+
+      const result = await mainService.createRating({
+        productId: 'prod1',
+        customerId: 'customer1',
+        customerName: 'Test User',
+        rating: 4,
+      });
+
+      expect(result?.commentStatus).toBe('approved');
+      expect(result?.ratingPublished).toBe(true);
+    });
+
+    it('11. should leave a rating with comment text as pending for manager review', async () => {
+      const mockComment = {
+        _id: { toString: () => 'rating2' },
+        productId: 'prod1',
+        customerId: 'customer1',
+        customerName: 'Test User',
+        content: 'Great product!',
+        rating: 5,
+        approvalStatus: 'pending',
+        toObject: () => ({
+          _id: { toString: () => 'rating2' },
+          productId: 'prod1',
+          customerId: 'customer1',
+          customerName: 'Test User',
+          content: 'Great product!',
+          rating: 5,
+          approvalStatus: 'pending',
+          createdAt: new Date(),
+        }),
+      };
+      // ensureProductExists: findById().select().lean().exec()
+      mockProductModel.findById = jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockReturnThis(),
+        exec: jest.fn().mockResolvedValue({ _id: 'prod1' }),
+      });
+      mockCommentModel.create = jest.fn().mockResolvedValue(mockComment);
+
+      const result = await mainService.createRating({
+        productId: 'prod1',
+        customerId: 'customer1',
+        customerName: 'Test User',
+        rating: 5,
+        content: 'Great product!',
+      });
+
+      expect(result?.commentStatus).toBe('pending');
+      expect(result?.ratingPublished).toBe(true);
+    });
+  });
+
+  describe('reviewComment', () => {
+    it('12. should persist approval status and reviewedBy when manager approves a comment', async () => {
+      const save = jest.fn().mockResolvedValue(undefined);
+      const mockComment = {
+        _id: { toString: () => 'comment1' },
+        content: 'Nice hoodie!',
+        approvalStatus: 'pending',
+        reviewedBy: '',
+        reviewNote: '',
+        reviewedAt: null,
+        save,
+        toObject: () => ({
+          _id: { toString: () => 'comment1' },
+          productId: 'prod1',
+          customerId: 'customer1',
+          customerName: 'Test User',
+          content: 'Nice hoodie!',
+          approvalStatus: 'approved',
+          createdAt: new Date(),
+        }),
+      };
+      mockCommentModel.findById = jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(mockComment) });
+
+      await mainService.reviewComment('comment1', {
+        approvalStatus: 'approved',
+        reviewedBy: 'manager1',
+      });
+
+      expect(mockComment.approvalStatus).toBe('approved');
+      expect(mockComment.reviewedBy).toBe('manager1');
+      expect(save).toHaveBeenCalled();
+    });
+
+    it('13. should throw NotFoundException when the comment does not exist', async () => {
+      mockCommentModel.findById = jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(null) });
+
+      await expect(
+        mainService.reviewComment('nonexistent', { approvalStatus: 'rejected', reviewedBy: 'manager1' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findLowStockProducts', () => {
+    it('14. should query products with stock at or below the given threshold', async () => {
+      mockProductModel.find = jest.fn().mockReturnThis();
+      mockProductModel.sort = jest.fn().mockReturnThis();
+      mockProductModel.exec = jest.fn().mockResolvedValue([
+        {
+          toObject: () => ({ _id: { toString: () => 'p1' }, name: 'Jeans', price: 50, stock: 2, categoryIds: [] }),
+          stock: 2,
+        },
+      ]);
+
+      const result = await mainService.findLowStockProducts(5);
+
+      expect(mockProductModel.find).toHaveBeenCalledWith({ stock: { $lte: 5 } });
+      expect(mockProductModel.sort).toHaveBeenCalledWith({ stock: 1 });
+      expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('updateProductPricing', () => {
+    it('15. should throw BadRequestException when no pricing fields are provided', async () => {
+      await expect(
+        mainService.updateProductPricing('prod1', {}),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
 });

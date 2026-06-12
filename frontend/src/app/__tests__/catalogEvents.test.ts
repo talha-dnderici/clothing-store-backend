@@ -1,5 +1,6 @@
 /**
  * FE — Unit tests: catalog change events and recovery snapshots.
+ * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
@@ -37,5 +38,25 @@ describe('catalogEvents', () => {
 
     saveDeletedCategorySnapshot(null);
     expect(loadDeletedCategorySnapshot()).toBeNull();
+  });
+
+  it('saves, loads, and clears a deleted product snapshot', () => {
+    const snapshot = {
+      name: 'Oversized Hoodie',
+      description: 'Premium cotton blend hoodie.',
+      categoryIds: ['cat-hoodies', 'cat-men'],
+      price: 79.99,
+      stock: 30,
+      serialNumber: 'SN-001',
+      model: 'AH-2026',
+      discountRate: 10,
+      discountActive: false,
+    };
+
+    saveDeletedProductSnapshot(snapshot);
+    expect(loadDeletedProductSnapshot()).toEqual(snapshot);
+
+    saveDeletedProductSnapshot(null);
+    expect(loadDeletedProductSnapshot()).toBeNull();
   });
 });
