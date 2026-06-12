@@ -42,6 +42,10 @@ vi.mock('../components/RecentlyViewed', () => ({ RecentlyViewed: () => <div data
 describe('Home Product Listing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Clear session-storage cache written by the previous test so that the
+    // "error state" test doesn't pick up stale cached products and skip the
+    // error-message branch in the catch handler.
+    window.sessionStorage.clear();
   });
 
   it('renders filter section and default empty products state', async () => {

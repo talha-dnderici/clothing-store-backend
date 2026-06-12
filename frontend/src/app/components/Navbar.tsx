@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Package,
   Settings,
+  X,
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
@@ -15,7 +16,7 @@ import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 import { SearchBar } from './SearchBar';
 import { CartDrawer } from './CartDrawer';
-import { isAdminEmail } from '../utils/admin';
+import { isAdminUser } from '../utils/admin';
 
 interface NavbarProps {
   onSearch: (query: string) => void;
@@ -26,7 +27,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
   const { user, logout } = useAuth();
   const { totalItems } = useCart();
-  const { wishlist, notifications, unreadCount, markNotificationRead, refreshNotifications } = useWishlist();
+  const { wishlist, notifications, unreadCount, markNotificationRead, dismissNotification, refreshNotifications } = useWishlist();
   const navigate = useNavigate();
   const wishlistCount = wishlist.length;
   const [cartOpen, setCartOpen] = useState(false);
@@ -76,7 +77,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
     };
   }, [notificationsOpen, refreshNotifications]);
 
-  const isAdmin = isAdminEmail(user?.email);
+  const isAdmin = isAdminUser(user);
 
   // Trigger bump animation when total changes
   useEffect(() => {
@@ -197,7 +198,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
                         data-testid="logout-btn"
                         onClick={() => {
                           setMenuOpen(false);
-                          localStorage.removeItem('token');
+                          sessionStorage.removeItem('token');
                           logout();
                         }}
                         className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
@@ -280,7 +281,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
                           <div className="px-3 py-8 text-center">
                             <p className="text-sm font-semibold text-gray-900">No notifications</p>
                             <p className="mt-1 text-xs text-gray-500">
-                              Wishlist discount alerts will appear here.
+                              Wishlist discount alerts, refund notifications will appear here.
                             </p>
                           </div>
                         ) : (
@@ -296,10 +297,29 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
                                   navigate(`/product/${notification.productId}`);
                                 }
                               }}
-                              className={`w-full rounded-xl px-3 py-3 text-left transition-colors ${
+                              className={`group relative w-full rounded-xl px-3 py-3 text-left transition-colors ${
                                 notification.isRead ? 'hover:bg-gray-50' : 'bg-red-50 hover:bg-red-100'
                               }`}
                             >
+                              {/* Dismiss button */}
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                aria-label="Dismiss notification"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  dismissNotification(notification.id);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.stopPropagation();
+                                    dismissNotification(notification.id);
+                                  }
+                                }}
+                                className="absolute right-2 top-2 hidden rounded-full p-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600 group-hover:flex items-center justify-center cursor-pointer"
+                              >
+                                <X size={12} />
+                              </span>
                               <div className="flex items-start gap-3">
                                 <span
                                   className={`mt-1 h-2 w-2 rounded-full ${
@@ -313,11 +333,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onSearch, onHomeClick }) => {
                                   {notification.message && (
                                     <span className="mt-0.5 block text-xs leading-5 text-gray-600">
                                       {notification.message}
-                                    </span>
-                                  )}
-                                  {notification.metadata?.discountedPrice !== undefined && (
-                                    <span className="mt-1 block text-xs font-semibold text-red-700">
-                                      Now ${notification.metadata.discountedPrice.toFixed(2)}
                                     </span>
                                   )}
                                 </span>

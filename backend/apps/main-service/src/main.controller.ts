@@ -50,6 +50,11 @@ export class MainController {
     return this.mainService.markNotificationRead(payload);
   }
 
+  @MessagePattern('main.deleteNotification')
+  deleteNotification(@Payload() payload: MarkNotificationReadDto) {
+    return this.mainService.deleteNotification(payload);
+  }
+
   @MessagePattern('main.createCategory')
   createCategory(@Payload() payload: CreateCategoryDto) {
     return this.mainService.createCategory(payload);

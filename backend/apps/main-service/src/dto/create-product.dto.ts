@@ -34,9 +34,12 @@ export class CreateProductDto {
   @IsString({ each: true })
   categoryIds?: string[];
 
+  // Product managers create products without a price; the sales manager
+  // sets the price afterwards via PATCH /manager/products/:id/pricing.
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  price!: number;
+  price?: number;
 
   @IsOptional()
   @IsNumber()

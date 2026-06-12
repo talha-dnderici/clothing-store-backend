@@ -265,6 +265,85 @@ describe('CardService order cancellation', () => {
     ).rejects.toThrow('You can only cancel your own orders');
     expect(order.save).not.toHaveBeenCalled();
   });
+
+  it('rejects cancelling an order that does not exist', async () => {
+    orderModel.findById.mockReturnValue(asExec(null));
+
+    await expect(
+      service.cancelOrder({ orderId: 'missing-order', customerId: 'customer1' }),
+    ).rejects.toThrow('Order not found');
+    expect(productModel.updateOne).not.toHaveBeenCalled();
+    expect(deliveryModel.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('CardService refund guards', () => {
+  it('rejects refund requests for orders that were never paid', async () => {
+    const orderModel = {
+      findById: jest.fn().mockReturnValue(
+        asExec({
+          _id: { toString: () => 'order1' },
+          customerId: 'customer1',
+          paymentConfirmed: false,
+          createdAt: new Date(),
+          items: [{ productId: 'product1', productName: 'Jacket', quantity: 1, unitPrice: 100, discountRate: 0 }],
+        }),
+      ),
+    };
+    const service = new CardService(
+      {} as any,
+      { updateOne: jest.fn() } as any,
+      orderModel as any,
+      {} as any,
+      {} as any,
+      { find: jest.fn(), create: jest.fn() } as any,
+    );
+
+    await expect(
+      service.createRefundRequest({
+        customerId: 'customer1',
+        orderId: 'order1',
+        productId: 'product1',
+        quantity: 1,
+      } as any),
+    ).rejects.toThrow('Only paid orders can be refunded');
+  });
+});
+
+describe('CardService report helpers', () => {
+  let service: any;
+
+  beforeEach(() => {
+    service = new CardService(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+  });
+
+  it('rejects invalid dates in the report date-range filter', () => {
+    expect(() => service.buildDateRangeFilter({ startDate: 'not-a-date' })).toThrow(
+      'startDate must be a valid date',
+    );
+  });
+
+  it('rejects date ranges where the start comes after the end', () => {
+    expect(() =>
+      service.buildDateRangeFilter({ startDate: '2026-06-10', endDate: '2026-06-01' }),
+    ).toThrow('startDate must be before endDate');
+  });
+
+  it('groups report buckets by day, week and month correctly', () => {
+    // 2026-06-10 is a Wednesday; the week bucket starts on Monday 2026-06-08.
+    const date = new Date('2026-06-10T12:00:00.000Z');
+
+    expect(service.getBucketKey(date, 'day')).toBe('2026-06-10');
+    expect(service.getBucketKey(date, 'week')).toBe('2026-06-08');
+    expect(service.getBucketKey(date, 'month')).toBe('2026-06');
+  });
 });
 
 describe('CardService delivery workflow', () => {

@@ -20,7 +20,7 @@ export class Product {
   @Prop({ required: true, type: [String], default: [] })
   categoryIds!: string[];
 
-  @Prop({ required: true, min: 0 })
+  @Prop({ default: 0, min: 0 })
   price!: number;
 
   @Prop({ default: 0, min: 0 })

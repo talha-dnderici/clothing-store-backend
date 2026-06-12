@@ -15,7 +15,7 @@ function getStoredToken(): string | null {
   }
 
   try {
-    return window.localStorage.getItem('token');
+    return window.sessionStorage.getItem('token');
   } catch {
     return null;
   }
@@ -139,6 +139,37 @@ export const api = {
     const qs = status ? `?status=${encodeURIComponent(status)}` : '';
     return request(`/manager/refund-requests${qs}`, undefined, token);
   },
+  getManagerInvoices(token: string, params?: { startDate?: string; endDate?: string }) {
+    const qs = new URLSearchParams(
+      Object.entries(params ?? {}).filter(([, v]) => Boolean(v)) as [string, string][],
+    ).toString();
+    return request(`/manager/invoices${qs ? `?${qs}` : ''}`, undefined, token);
+  },
+  getManagerRevenue(
+    token: string,
+    params?: { startDate?: string; endDate?: string; groupBy?: 'day' | 'week' | 'month' },
+  ) {
+    const qs = new URLSearchParams(
+      Object.entries(params ?? {}).filter(([, v]) => Boolean(v)) as [string, string][],
+    ).toString();
+    return request(`/manager/revenue${qs ? `?${qs}` : ''}`, undefined, token);
+  },
+  getManagerProfitLoss(
+    token: string,
+    params?: { startDate?: string; endDate?: string; groupBy?: 'day' | 'week' | 'month' },
+  ) {
+    const qs = new URLSearchParams(
+      Object.entries(params ?? {}).filter(([, v]) => Boolean(v)) as [string, string][],
+    ).toString();
+    return request(`/manager/profit-loss${qs ? `?${qs}` : ''}`, undefined, token);
+  },
+  async downloadManagerInvoicePdf(token: string, orderId: string) {
+    const res = await fetch(`${BASE_URL}/manager/invoices/${orderId}/pdf`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`Invoice PDF ${res.status}`);
+    return res.blob();
+  },
   updateManagerRefundRequest(
     token: string,
     refundId: string,
@@ -254,5 +285,8 @@ export const api = {
   },
   markNotificationRead(token: string, notificationId: string) {
     return request(`/notifications/${notificationId}/read`, { method: 'PATCH' }, token);
+  },
+  deleteNotification(token: string, notificationId: string) {
+    return request(`/notifications/${notificationId}`, { method: 'DELETE' }, token);
   },
 };

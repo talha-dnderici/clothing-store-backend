@@ -49,8 +49,15 @@ export function isAdminEmail(email?: string | null): boolean {
  *  OR when their email matches the allow-list. Use this in components. */
 export function isAdminUser(user?: { email?: string; role?: string } | null): boolean {
   if (!user) return false;
-  const role = (user.role ?? '').toLowerCase();
-  if (role === 'admin' || role === 'manager' || role === 'sales_manager' || role === 'product_manager') {
+  // Normalize the role so every backend spelling matches:
+  // 'salesManager', 'sales_manager', 'SALES-MANAGER' → 'salesmanager'.
+  const role = (user.role ?? '').toLowerCase().replace(/[^a-z]/g, '');
+  if (
+    role === 'admin' ||
+    role === 'manager' ||
+    role === 'salesmanager' ||
+    role === 'productmanager'
+  ) {
     return true;
   }
   return isAdminEmail(user.email);

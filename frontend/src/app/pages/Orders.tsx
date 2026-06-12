@@ -8,6 +8,7 @@ import {
   RotateCcw,
   Download,
   Mail,
+  Printer,
   AlertCircle,
   ShoppingBag,
   Star,
@@ -154,7 +155,7 @@ export default function Orders() {
   const { user } = useAuth();
   const { showToast } = useToast();
   const token =
-    typeof window !== 'undefined' ? window.localStorage.getItem('token') ?? '' : '';
+    typeof window !== 'undefined' ? window.sessionStorage.getItem('token') ?? '' : '';
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -304,6 +305,29 @@ export default function Orders() {
     } catch (err: any) {
       showToast({
         title: 'Could not email invoice',
+        description: err?.message,
+        variant: 'error',
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handlePrintInvoice = async (orderId: string) => {
+    if (!token) return;
+    setBusyId(orderId);
+    try {
+      const blob = await api.downloadInvoicePdf(token, orderId);
+      const url = URL.createObjectURL(blob);
+      const printWindow = window.open(url, '_blank');
+      if (printWindow) {
+        printWindow.addEventListener('load', () => {
+          printWindow.print();
+        });
+      }
+    } catch (err: any) {
+      showToast({
+        title: 'Could not load invoice for printing',
         description: err?.message,
         variant: 'error',
       });
@@ -469,6 +493,15 @@ export default function Orders() {
                     data-testid="email-invoice"
                   >
                     <Mail size={13} /> Email me
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePrintInvoice(id)}
+                    disabled={busy}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition"
+                    data-testid="print-invoice"
+                  >
+                    <Printer size={13} /> Print PDF
                   </button>
 
                   <div className="ml-auto flex flex-wrap gap-2">

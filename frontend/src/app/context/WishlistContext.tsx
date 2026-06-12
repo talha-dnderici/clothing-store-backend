@@ -39,6 +39,7 @@ interface WishlistContextType {
   refreshWishlist: () => Promise<void>;
   refreshNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
+  dismissNotification: (id: string) => Promise<void>;
 }
 
 const WishlistContext = createContext<WishlistContextType | undefined>(undefined);
@@ -57,7 +58,7 @@ function readStoredWishlist() {
 function getStoredToken() {
   if (typeof window === 'undefined') return null;
   try {
-    return window.localStorage.getItem('token');
+    return window.sessionStorage.getItem('token');
   } catch {
     return null;
   }
@@ -168,6 +169,18 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     }
   }, [notifications, token]);
 
+  const dismissNotification = useCallback(async (id: string) => {
+    const previous = notifications;
+    setNotifications((current) => current.filter((n) => n.id !== id));
+
+    if (!token) return;
+    try {
+      await api.deleteNotification(token, id);
+    } catch {
+      setNotifications(previous);
+    }
+  }, [notifications, token]);
+
   return (
     <WishlistContext.Provider
       value={{
@@ -180,6 +193,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
         refreshWishlist,
         refreshNotifications,
         markNotificationRead,
+        dismissNotification,
       }}
     >
       {children}

@@ -21,8 +21,8 @@ function readStoredUser(): User | null {
   }
 
   try {
-    const rawUser = window.localStorage.getItem('authUser');
-    const token = window.localStorage.getItem('token');
+    const rawUser = window.sessionStorage.getItem('authUser');
+    const token = window.sessionStorage.getItem('token');
 
     if (!rawUser || !token) {
       return null;
@@ -41,9 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(nextUser);
 
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('authUser', JSON.stringify(nextUser));
+      window.sessionStorage.setItem('authUser', JSON.stringify(nextUser));
       if (token) {
-        window.localStorage.setItem('token', token);
+        window.sessionStorage.setItem('token', token);
       }
     }
   };
@@ -52,8 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
 
     if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('authUser');
-      window.localStorage.removeItem('token');
+      window.sessionStorage.removeItem('authUser');
+      window.sessionStorage.removeItem('token');
     }
   };
 

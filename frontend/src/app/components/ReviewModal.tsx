@@ -58,7 +58,7 @@ export function ReviewModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const token =
-      typeof window !== 'undefined' ? window.localStorage.getItem('token') ?? '' : '';
+      typeof window !== 'undefined' ? window.sessionStorage.getItem('token') ?? '' : '';
     if (!token) {
       setError('You need to be signed in to leave a review.');
       return;

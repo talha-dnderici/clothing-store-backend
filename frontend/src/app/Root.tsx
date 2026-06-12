@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 import { Navbar } from './components/Navbar';
 import { CategoryMenu } from './components/CategoryMenu';
@@ -44,19 +44,35 @@ export default function Root() {
     return () => window.removeEventListener(CATALOG_CHANGED_EVENT, handleCatalogChanged);
   }, [refreshCategories]);
 
+  // Start every page at the top. Without this, react-router keeps the scroll
+  // position of the previous page when navigating.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
+  // Track the current path in a ref so the handlers below stay referentially
+  // stable. SearchBar auto-fires `onSearch` from a debounced effect whenever
+  // the callback identity changes; unstable handlers caused every navigation
+  // to bounce straight back to the storefront.
+  const pathnameRef = useRef(location.pathname);
+  useEffect(() => {
+    pathnameRef.current = location.pathname;
+  }, [location.pathname]);
+
   const handleSearch = useCallback((query: string) => {
     setSearchQuery((prev) => {
-      if (prev !== query && location.pathname !== '/') navigate('/');
+      if (prev !== query && pathnameRef.current !== '/') navigate('/');
       return query;
     });
-  }, [location.pathname, navigate]);
+  }, [navigate]);
 
+  // Category picks are real clicks (never auto-fired), so always return to
+  // the storefront — even when the same category is selected again from
+  // /orders, /playground, etc.
   const handleCategoryChange = useCallback((category: string) => {
-    setActiveCategory((prev) => {
-      if (prev !== category && location.pathname !== '/') navigate('/');
-      return category;
-    });
-  }, [location.pathname, navigate]);
+    setActiveCategory(category);
+    if (pathnameRef.current !== '/') navigate('/');
+  }, [navigate]);
 
   // Reset every catalog filter and ensure we're on the home route. Used by
   // the AURA logo so a single click always feels like "go to the storefront".

@@ -62,6 +62,7 @@ const productSchema = new mongoose.Schema(
     description: { type: String, required: true, trim: true },
     categoryIds: { type: [String], required: true, default: [] },
     price: { type: Number, required: true, min: 0 },
+    costPrice: { type: Number, default: 0, min: 0 },
     stock: { type: Number, required: true, min: 0 },
     warrantyStatus: { type: Boolean, default: false },
     distributor: { type: String, default: '', trim: true },
@@ -124,28 +125,13 @@ const categories = [
 
 const productSeeds = [
   {
-    name: "Classic Men's T-Shirt",
-    model: 'AURA-TSHIRT-01',
-    serialNumber: 'SN-AURA-1001',
-    description:
-      'Premium quality men\'s t-shirt designed for comfort, breathability, and all-day wear.',
-    categorySlug: 'men',
-    price: 24.99,
-    stock: 42,
-    warrantyStatus: false,
-    distributor: 'AURA Global Warehouses',
-    discountRate: 0,
-    popularity: 95,
-    imageUrl:
-      'https://images.unsplash.com/photo-1763609973511-77f5caecd0f5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080',
-  },
-  {
     name: 'Summer Floral Dress',
     model: 'AURA-DRESS-02',
     serialNumber: 'SN-AURA-1002',
     description: 'Lightweight floral dress with a relaxed fit and summer-ready silhouette.',
     categorySlug: 'women',
     price: 59.99,
+    costPrice: 28.00,   // ~53% margin
     stock: 15,
     warrantyStatus: false,
     distributor: 'AURA Fashion Partners',
@@ -162,6 +148,7 @@ const productSeeds = [
     description: 'Modern everyday sneakers with cushioned comfort and clean streetwear lines.',
     categorySlug: 'shoes',
     price: 89.99,
+    costPrice: 45.00,   // ~50% margin
     stock: 12,
     warrantyStatus: false,
     distributor: 'Sneaks Global Dist.',
@@ -178,6 +165,7 @@ const productSeeds = [
     description: 'Elegant leather watch for daily wear with polished metal accents.',
     categorySlug: 'accessories',
     price: 129.99,
+    costPrice: 58.00,   // ~55% margin
     stock: 20,
     warrantyStatus: true,
     distributor: 'AURA Global Warehouses',
@@ -193,6 +181,7 @@ const productSeeds = [
     description: 'Structured leather handbag with roomy interior and premium hardware.',
     categorySlug: 'accessories',
     price: 149.99,
+    costPrice: 72.00,   // ~52% margin
     stock: 9,
     warrantyStatus: true,
     distributor: 'AURA Global Warehouses',
@@ -209,6 +198,7 @@ const productSeeds = [
     description: 'Soft brushed-fleece hoodie built for layering and everyday comfort.',
     categorySlug: 'unisex',
     price: 64.99,
+    costPrice: 30.00,   // ~54% margin
     stock: 50,
     warrantyStatus: false,
     distributor: 'AURA Global Warehouses',
@@ -287,6 +277,7 @@ async function seed() {
             description: product.description,
             categoryIds: [categoryId],
             price: product.price,
+            costPrice: product.costPrice ?? 0,
             stock: product.stock,
             warrantyStatus: product.warrantyStatus,
             distributor: product.distributor,

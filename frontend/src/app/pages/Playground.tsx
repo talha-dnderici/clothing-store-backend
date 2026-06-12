@@ -12,6 +12,7 @@ import {
   MessageSquare,
   PackageCheck,
   Plus,
+  Printer,
   RefreshCw,
   Truck,
   Send,
@@ -19,11 +20,24 @@ import {
   Square,
   Star,
   Tag,
+  TrendingUp,
   Trash2,
   Undo2,
   X,
   XCircle,
 } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as ChartTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { api } from '../utils/api';
 import { EndpointTester } from '../components/EndpointTester';
 import {
@@ -131,6 +145,31 @@ type RefundRequest = {
   createdAt?: string;
 };
 
+type ManagerInvoice = {
+  id: string;
+  invoiceNumber: string;
+  orderId: string;
+  customerEmail?: string;
+  totalAmount: number;
+  createdAt?: string;
+  emailStatus?: string;
+};
+
+type RevenueReport = {
+  invoiceCount: number;
+  totalRevenue: number;
+  chart: Array<{ date: string; revenue: number; invoiceCount: number }>;
+};
+
+type ProfitLossReport = {
+  orderCount: number;
+  totalRevenue: number;
+  totalCost: number;
+  profit: number;
+  loss: number;
+  chart: Array<{ date: string; revenue: number; cost: number; profit: number }>;
+};
+
 type LogEntry = {
   id: number;
   tone: 'ok' | 'error' | 'info';
@@ -209,6 +248,23 @@ export default function Playground() {
   const [managerOrders, setManagerOrders] = useState<Order[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([]);
+  const [reportStartDate, setReportStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [reportEndDate, setReportEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reportInvoices, setReportInvoices] = useState<ManagerInvoice[]>([]);
+  const [invoicesLoaded, setInvoicesLoaded] = useState(false);
+  const [chartStartDate, setChartStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [chartEndDate, setChartEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [revenueReport, setRevenueReport] = useState<RevenueReport | null>(null);
+  const [profitReport, setProfitReport] = useState<ProfitLossReport | null>(null);
+  const [chartsLoaded, setChartsLoaded] = useState(false);
   const [customerOrders, setCustomerOrders] = useState<Order[]>([]);
   const [checkoutResult, setCheckoutResult] = useState<CheckoutResult | null>(null);
   const [priceInput, setPriceInput] = useState('');
@@ -225,9 +281,9 @@ export default function Playground() {
   const [newProductDescription, setNewProductDescription] = useState(
     'New catalog item added live by the product manager.',
   );
-  const [newProductPrice, setNewProductPrice] = useState('49.99');
   const [newProductStock, setNewProductStock] = useState('25');
   const [newProductCategoryId, setNewProductCategoryId] = useState('');
+  const [newProductImageUrl, setNewProductImageUrl] = useState('');
   const [productToRemoveId, setProductToRemoveId] = useState('');
   const [lastDeletedCategory, setLastDeletedCategory] = useState<DeletedCategorySnapshot | null>(
     () => loadDeletedCategorySnapshot(),
@@ -431,6 +487,72 @@ export default function Playground() {
     ]);
   };
 
+  const loadInvoiceReport = async () => {
+    if (!salesManager?.token) throw new Error('Sales manager login is required.');
+
+    const params = { startDate: reportStartDate, endDate: reportEndDate };
+    const invoicesRes = await api.getManagerInvoices(salesManager.token, params);
+
+    setReportInvoices(invoicesRes.data as ManagerInvoice[]);
+    setInvoicesLoaded(true);
+    addLog(
+      `${(invoicesRes.data as ManagerInvoice[]).length} invoices loaded for the selected range.`,
+      'ok',
+    );
+  };
+
+  const loadChartReports = async () => {
+    if (!salesManager?.token) throw new Error('Sales manager login is required.');
+
+    const params = { startDate: chartStartDate, endDate: chartEndDate };
+    const [revenueRes, profitRes] = await Promise.all([
+      api.getManagerRevenue(salesManager.token, { ...params, groupBy: 'day' }),
+      api.getManagerProfitLoss(salesManager.token, { ...params, groupBy: 'day' }),
+    ]);
+
+    setRevenueReport(revenueRes.data as RevenueReport);
+    setProfitReport(profitRes.data as ProfitLossReport);
+    setChartsLoaded(true);
+    addLog('Revenue and profit/loss charts loaded.', 'ok');
+  };
+
+  const printManagerInvoice = async (invoice: ManagerInvoice) => {
+    if (!salesManager?.token) throw new Error('Sales manager login is required.');
+    const blob = await api.downloadManagerInvoicePdf(salesManager.token, invoice.orderId);
+    const url = URL.createObjectURL(blob);
+    const frame = document.createElement('iframe');
+    frame.style.display = 'none';
+    frame.src = url;
+    document.body.appendChild(frame);
+    frame.onload = () => {
+      try {
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+      } finally {
+        // Keep the frame alive long enough for the print dialog, then clean up.
+        setTimeout(() => {
+          frame.remove();
+          URL.revokeObjectURL(url);
+        }, 60_000);
+      }
+    };
+    addLog(`Invoice ${invoice.invoiceNumber} sent to the printer.`, 'ok');
+  };
+
+  const downloadManagerInvoice = async (invoice: ManagerInvoice) => {
+    if (!salesManager?.token) throw new Error('Sales manager login is required.');
+    const blob = await api.downloadManagerInvoicePdf(salesManager.token, invoice.orderId);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${invoice.invoiceNumber || invoice.orderId}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    addLog(`Invoice ${invoice.invoiceNumber} downloaded as PDF.`, 'ok');
+  };
+
   const loginAs = async (kind: 'customer' | 'salesManager' | 'productManager') => {
     const credentials =
       kind === 'customer'
@@ -444,9 +566,15 @@ export default function Playground() {
       const data = response.data as { token: string; user: LoginUser };
       const loginState = { token: data.token, user: data.user };
 
-      if (kind === 'customer') setCustomer(loginState);
-      else if (kind === 'salesManager') setSalesManager(loginState);
-      else setProductManager(loginState);
+      if (kind === 'customer') {
+        setCustomer(loginState);
+      } else if (kind === 'salesManager') {
+        setSalesManager(loginState);
+        setProductManager(null);          // only one manager role active at a time
+      } else {
+        setProductManager(loginState);
+        setSalesManager(null);            // only one manager role active at a time
+      }
 
       addLog(`${data.user.name} logged in.`, 'ok');
     } catch {
@@ -692,10 +820,8 @@ export default function Playground() {
     if (!newProductCategoryId) throw new Error('Select a category first.');
 
     const name = newProductName.trim();
-    const price = Number(newProductPrice);
     const stock = Number(newProductStock);
     if (!name) throw new Error('Product name is required.');
-    if (Number.isNaN(price) || price < 0) throw new Error('Price is invalid.');
     if (Number.isNaN(stock) || stock < 0) throw new Error('Stock is invalid.');
 
     const stamp = Date.now();
@@ -703,13 +829,12 @@ export default function Playground() {
       name,
       description: newProductDescription.trim() || `Demo product ${name}`,
       categoryIds: [newProductCategoryId],
-      price,
       stock,
       serialNumber: `DEMO-${stamp}`,
       model: `DEMO-MODEL-${stamp}`,
       distributor: 'AURA Demo Warehouse',
       popularity: 50,
-      imageUrl:
+      imageUrl: newProductImageUrl.trim() ||
         'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080',
     });
     const created = response.data as { id: string; name: string };
@@ -1340,21 +1465,37 @@ export default function Playground() {
                       </option>
                     ))}
                   </select>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <input
-                      value={newProductPrice}
-                      onChange={(event) => setNewProductPrice(event.target.value)}
-                      className="h-11 rounded-md border border-stone-300 px-3 text-sm font-semibold"
-                      inputMode="decimal"
-                      placeholder="Price"
-                    />
-                    <input
-                      value={newProductStock}
-                      onChange={(event) => setNewProductStock(event.target.value)}
-                      className="h-11 rounded-md border border-stone-300 px-3 text-sm font-semibold"
-                      inputMode="numeric"
-                      placeholder="Stock"
-                    />
+                  <input
+                    value={newProductStock}
+                    onChange={(event) => setNewProductStock(event.target.value)}
+                    className="h-11 rounded-md border border-stone-300 px-3 text-sm font-semibold"
+                    inputMode="numeric"
+                    placeholder="Stock"
+                  />
+
+                  {/* Image URL field + live preview */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 rounded-md border border-stone-300 px-3 h-11">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-stone-400"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                      <input
+                        value={newProductImageUrl}
+                        onChange={(event) => setNewProductImageUrl(event.target.value)}
+                        className="flex-1 border-0 bg-transparent p-0 text-sm outline-none"
+                        placeholder="Image URL (leave blank for default)"
+                        type="url"
+                      />
+                    </div>
+                    {newProductImageUrl.trim() && (
+                      <div className="relative overflow-hidden rounded-md border border-stone-200 bg-stone-100" style={{height: 120}}>
+                        <img
+                          src={newProductImageUrl.trim()}
+                          alt="Preview"
+                          className="h-full w-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                        <span className="absolute bottom-1 right-1 rounded bg-black/50 px-1.5 py-0.5 text-[10px] font-bold text-white">Preview</span>
+                      </div>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -1366,7 +1507,8 @@ export default function Playground() {
                     Add Product
                   </button>
                   <p className="text-xs text-stone-500">
-                    New products are created under the selected category (demo default: Product D).
+                    Fiyat alanı yok — sales manager Pricing panelinden atar.
+                    Fotoğraf URL'si boş bırakılırsa varsayılan görüntü kullanılır.
                   </p>
                 </div>
 
@@ -1922,11 +2064,233 @@ export default function Playground() {
         </section>
 
         <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-emerald-700" />
+              <h2 className="text-xl font-extrabold text-stone-950">Invoices</h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                value={reportStartDate}
+                onChange={(event) => setReportStartDate(event.target.value)}
+                className="h-10 rounded-md border border-stone-300 px-3 text-sm font-semibold"
+                data-testid="report-start-date"
+              />
+              <span className="text-sm font-bold text-stone-500">→</span>
+              <input
+                type="date"
+                value={reportEndDate}
+                onChange={(event) => setReportEndDate(event.target.value)}
+                className="h-10 rounded-md border border-stone-300 px-3 text-sm font-semibold"
+                data-testid="report-end-date"
+              />
+              <button
+                type="button"
+                onClick={() => run('load-invoices', loadInvoiceReport)}
+                disabled={Boolean(busyAction) || !salesManager?.token}
+                className="inline-flex h-10 items-center gap-2 rounded-md bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50"
+                data-testid="load-invoices"
+              >
+                <RefreshCw size={15} />
+                Load invoices
+              </button>
+            </div>
+          </div>
+
+          {!salesManager?.token ? (
+            <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
+              Sign in as the sales manager to list invoices in a date range.
+            </div>
+          ) : !invoicesLoaded ? (
+            <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
+              Pick a date range and press “Load invoices”.
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="text-sm font-bold text-stone-600" data-testid="report-invoice-count">
+                {reportInvoices.length} invoice{reportInvoices.length === 1 ? '' : 's'} between{' '}
+                {reportStartDate} and {reportEndDate}
+              </div>
+              <div className="space-y-2" data-testid="report-invoice-list">
+                {reportInvoices.map((invoice) => (
+                  <div
+                    key={invoice.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-stone-200 p-3"
+                  >
+                    <div>
+                      <div className="font-bold text-stone-900">{invoice.invoiceNumber}</div>
+                      <div className="text-xs text-stone-500">
+                        {invoice.customerEmail ?? invoice.orderId}
+                        {invoice.createdAt
+                          ? ` — ${new Date(invoice.createdAt).toLocaleDateString()}`
+                          : ''}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-extrabold text-stone-900">{money(invoice.totalAmount)}</span>
+                      <button
+                        type="button"
+                        onClick={() => run('download-invoice', () => downloadManagerInvoice(invoice))}
+                        disabled={Boolean(busyAction)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-stone-300 px-3 py-1.5 text-xs font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+                      >
+                        <FileText size={13} />
+                        PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => run('print-invoice', () => printManagerInvoice(invoice))}
+                        disabled={Boolean(busyAction)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-stone-300 px-3 py-1.5 text-xs font-bold text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+                        data-testid={`print-invoice-${invoice.id}`}
+                      >
+                        <Printer size={13} />
+                        Print
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {!reportInvoices.length ? (
+                  <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
+                    No invoices in the selected date range.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-blue-700" />
+              <h2 className="text-xl font-extrabold text-stone-950">Revenue &amp; Profit / Loss</h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                value={chartStartDate}
+                onChange={(event) => setChartStartDate(event.target.value)}
+                className="h-10 rounded-md border border-stone-300 px-3 text-sm font-semibold"
+                data-testid="chart-start-date"
+              />
+              <span className="text-sm font-bold text-stone-500">→</span>
+              <input
+                type="date"
+                value={chartEndDate}
+                onChange={(event) => setChartEndDate(event.target.value)}
+                className="h-10 rounded-md border border-stone-300 px-3 text-sm font-semibold"
+                data-testid="chart-end-date"
+              />
+              <button
+                type="button"
+                onClick={() => run('load-charts', loadChartReports)}
+                disabled={Boolean(busyAction) || !salesManager?.token}
+                className="inline-flex h-10 items-center gap-2 rounded-md bg-blue-700 px-4 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50"
+                data-testid="load-charts"
+              >
+                <RefreshCw size={15} />
+                Load charts
+              </button>
+            </div>
+          </div>
+
+          {!salesManager?.token ? (
+            <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
+              Sign in as the sales manager to view the revenue and profit/loss charts.
+            </div>
+          ) : !chartsLoaded ? (
+            <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
+              Pick a date range and press “Load charts”.
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-4">
+                <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-stone-500">Invoices</div>
+                  <div className="text-2xl font-extrabold text-stone-950" data-testid="chart-invoice-count">
+                    {revenueReport?.invoiceCount ?? 0}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-stone-500">Revenue</div>
+                  <div className="text-2xl font-extrabold text-emerald-700" data-testid="report-revenue">
+                    {money(revenueReport?.totalRevenue ?? 0)}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-stone-500">Cost</div>
+                  <div className="text-2xl font-extrabold text-stone-700">
+                    {money(profitReport?.totalCost ?? 0)}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-stone-500">
+                    {Number(profitReport?.profit ?? 0) >= 0 ? 'Profit' : 'Loss'}
+                  </div>
+                  <div
+                    className={`text-2xl font-extrabold ${
+                      Number(profitReport?.profit ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                    }`}
+                    data-testid="report-profit"
+                  >
+                    {money(Math.abs(profitReport?.profit ?? 0))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-5 lg:grid-cols-2">
+                <div className="rounded-lg border border-stone-200 p-3">
+                  <div className="mb-2 text-sm font-extrabold text-stone-800">Revenue &amp; Cost over time</div>
+                  <div className="h-64" data-testid="revenue-chart">
+                    <ResponsiveContainer width="100%" height="100%">
+                      {/* Use profitReport.chart so both revenue and cost are available */}
+                      <LineChart data={profitReport?.chart ?? revenueReport?.chart ?? []}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                        <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
+                        <ChartTooltip formatter={(value: number) => [`$${value.toFixed(2)}`, undefined]} />
+                        <Legend />
+                        <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#047857" strokeWidth={2} dot />
+                        <Line type="monotone" dataKey="cost" name="Cost" stroke="#f59e0b" strokeWidth={2} dot strokeDasharray="5 3" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-stone-200 p-3">
+                  <div className="mb-2 text-sm font-extrabold text-stone-800">Revenue / Cost / Profit</div>
+                  <div className="h-64" data-testid="profit-chart">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={profitReport?.chart ?? []}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                        <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
+                        <ChartTooltip formatter={(value: number) => [`$${value.toFixed(2)}`, undefined]} />
+                        <Legend />
+                        <Bar dataKey="revenue" name="Revenue" fill="#047857" radius={[3, 3, 0, 0]} />
+                        <Bar dataKey="cost" name="Cost" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+                        <Bar dataKey="profit" name="Profit" fill="#1d4ed8" radius={[3, 3, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5">
           <div className="mb-4 flex items-center gap-2">
             <Tag className="h-5 w-5 text-rose-700" />
             <h2 className="text-xl font-extrabold text-stone-950">Manager Pricing</h2>
           </div>
 
+          {!salesManager?.token ? (
+            <div className="rounded-lg border border-dashed border-stone-300 p-4 text-sm text-stone-500">
+              Sign in as the sales manager to set prices and discounts.
+            </div>
+          ) : (
           <div className="grid gap-4 md:grid-cols-[1fr_1fr_1fr_auto]">
             <label className="block">
               <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-stone-500">
@@ -1977,6 +2341,7 @@ export default function Playground() {
               Update
             </button>
           </div>
+          )}
         </section>
 
         <EndpointTester />

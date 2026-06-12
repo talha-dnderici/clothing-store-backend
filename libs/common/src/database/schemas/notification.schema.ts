@@ -24,8 +24,8 @@ export class Notification {
   @Prop({ required: true, index: true })
   customerId!: string;
 
-  @Prop({ required: true, enum: ['discount'] })
-  type!: 'discount';
+  @Prop({ required: true, enum: ['discount', 'refund'] })
+  type!: 'discount' | 'refund';
 
   @Prop({ required: true, index: true })
   productId!: string;

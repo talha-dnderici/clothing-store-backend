@@ -15,7 +15,7 @@ type UserProfile = {
 
 function readToken() {
   if (typeof window === 'undefined') return '';
-  return window.localStorage.getItem('token') ?? '';
+  return window.sessionStorage.getItem('token') ?? '';
 }
 
 function ProfileRow({ label, value }: { label: string; value: React.ReactNode }) {

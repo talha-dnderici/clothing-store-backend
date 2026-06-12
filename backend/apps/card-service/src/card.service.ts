@@ -1814,6 +1814,28 @@ export class CardService {
       await this.restoreRefundStock(refundRequest);
       await this.refreshRefundedOrderStatus(refundRequest.orderId);
 
+      // Create notification for the customer when refund is approved
+      if (payload.status === 'approved') {
+        try {
+          const db = this.orderModel.db;
+          await db.collection('notifications').insertOne({
+            customerId: refundRequest.customerId,
+            type: 'refund',
+            productId: refundRequest.orderItemProductId,
+            productName: refundRequest.productName,
+            title: 'Refund Approved',
+            message: `Your refund request for ${refundRequest.productName} (x${refundRequest.quantity}) has been approved.`,
+            isRead: false,
+            readAt: null,
+            metadata: {},
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        } catch {
+          // Non-critical — don't fail the refund flow
+        }
+      }
+
       return this.sanitizeRefundRequest(refundRequest);
     } catch (error) {
       this.handleServiceError(error, 'Refund request status could not be updated');

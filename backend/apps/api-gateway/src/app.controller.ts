@@ -760,6 +760,20 @@ export class AppController {
     });
   }
 
+  @Delete('notifications/:id')
+  async deleteNotification(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const authUser = await this.requireAuth(authorization);
+    this.requireCustomer(authUser);
+
+    return this.sendMessage(this.mainClient, 'main.deleteNotification', {
+      customerId: authUser.sub,
+      notificationId: id,
+    });
+  }
+
   @Get('manager/comments')
   async findManagerComments(
     @Headers('authorization') authorization: string | undefined,
@@ -814,7 +828,7 @@ export class AppController {
     @Body() dto: UpdateStockRequestDto,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireManager(authUser);
+    this.requireProductManager(authUser);
 
     return this.sendMessage(this.mainClient, 'main.updateStock', {
       id,
@@ -828,7 +842,7 @@ export class AppController {
     @Query('threshold') threshold?: string,
   ) {
     const authUser = await this.requireAuth(authorization);
-    this.requireManager(authUser);
+    this.requireProductManager(authUser);
 
     const parsedThreshold = threshold ? Number.parseInt(threshold, 10) : 5;
     return this.sendMessage(this.mainClient, 'main.findLowStock', {

@@ -73,7 +73,7 @@ export default function Checkout() {
     setProcessing(true);
 
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = sessionStorage.getItem('token') || '';
       if (!token) {
         throw new Error('Authentication is required');
       }

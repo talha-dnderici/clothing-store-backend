@@ -588,6 +588,25 @@ export class MainService {
     }
   }
 
+  async deleteNotification(payload: MarkNotificationReadDto) {
+    try {
+      const result = await this.notificationModel
+        .findOneAndDelete({
+          _id: payload.notificationId,
+          customerId: payload.customerId.trim(),
+        })
+        .exec();
+
+      if (!result) {
+        throw new NotFoundException('Notification not found');
+      }
+
+      return { deleted: true };
+    } catch (error) {
+      this.handleServiceError(error, 'Notification could not be deleted');
+    }
+  }
+
   async createCategory(payload: CreateCategoryDto) {
     try {
       if (payload.parentCategoryId) {
@@ -611,6 +630,8 @@ export class MainService {
       const product = await this.productModel.create({
         ...payload,
         categoryIds,
+        // New products start unpriced; the sales manager assigns the price.
+        price: payload.price ?? 0,
       });
       return this.sanitizeProduct(product);
     } catch (error) {
