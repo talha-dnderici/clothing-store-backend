@@ -1,18 +1,47 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useRecentlyViewed } from '../context/RecentlyViewedContext';
 import { LazyImage } from './LazyImage';
+import { api } from '../utils/api';
+import { CatalogProduct } from '../types/catalog';
 
 export const RecentlyViewed: React.FC = () => {
-  const { recent } = useRecentlyViewed();
+  const { recent, removeRecent } = useRecentlyViewed();
+  const [validated, setValidated] = useState<CatalogProduct[]>([]);
+  const [checked, setChecked] = useState(false);
 
-  if (recent.length === 0) return null;
+  useEffect(() => {
+    if (recent.length === 0) {
+      setValidated([]);
+      setChecked(true);
+      return;
+    }
+
+    let cancelled = false;
+    Promise.all(
+      recent.map((p) =>
+        api.getProduct(p.id).then(() => p).catch(() => {
+          removeRecent(p.id);
+          return null;
+        })
+      )
+    ).then((results) => {
+      if (!cancelled) {
+        setValidated(results.filter((p): p is CatalogProduct => p !== null));
+        setChecked(true);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [recent, removeRecent]);
+
+  if (!checked || validated.length === 0) return null;
 
   return (
     <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10">
       <h2 className="text-xl font-bold text-gray-900 mb-5 tracking-tight">Recently viewed</h2>
       <div className="flex gap-4 overflow-x-auto pb-3 scrollbar-hide snap-x snap-mandatory">
-        {recent.map((p) => (
+        {validated.map((p) => (
           <Link
             key={p.id}
             to={`/product/${p.id}`}

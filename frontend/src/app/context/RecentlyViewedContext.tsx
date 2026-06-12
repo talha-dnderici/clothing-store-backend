@@ -7,6 +7,7 @@ const MAX_ITEMS = 8;
 interface RecentlyViewedContextType {
   recent: CatalogProduct[];
   addRecent: (product: CatalogProduct) => void;
+  removeRecent: (id: string) => void;
 }
 
 const RecentlyViewedContext = createContext<RecentlyViewedContextType | undefined>(undefined);
@@ -37,8 +38,12 @@ export function RecentlyViewedProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const removeRecent = useCallback((id: string) => {
+    setRecent((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
   return (
-    <RecentlyViewedContext.Provider value={{ recent, addRecent }}>
+    <RecentlyViewedContext.Provider value={{ recent, addRecent, removeRecent }}>
       {children}
     </RecentlyViewedContext.Provider>
   );
